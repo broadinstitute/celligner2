@@ -23,7 +23,7 @@ class GCN(nn.Module):
         super(GCN, self).__init__()
         self.apply_mod = NodeApplyModule(in_feats, out_feats, activation)
      
-    def forward(self, g, feature):
+    def forward(self, g, feature) -> object:
         g.ndata['h'] = feature
         g.update_all(gcn_msg, gcn_reduce)
         g.apply_nodes(func=self.apply_mod)
@@ -31,7 +31,7 @@ class GCN(nn.Module):
         return h
 
 class GAE(nn.Module):
-    def __init__(self, in_dim, hidden_dims):
+    def __init__(self, in_dim: list, hidden_dims: list):
         super(GAE, self).__init__()
         # input: (batch_size, in_dim)
         layers = [GCN(in_dim, hidden_dims[0], F.relu)]
