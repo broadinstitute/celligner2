@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from .modules import Encoder, Decoder
 from .losses import mse, mmd, zinb, nb
 from ._utils import one_hot_encoder
-from scarches.models.base._base import CVAELatentsModelMixin
+from celligner2.othermodels.base._base import CVAELatentsModelMixin
 
 
 class trVAE(nn.Module, CVAELatentsModelMixin):
@@ -119,6 +119,8 @@ class trVAE(nn.Module, CVAELatentsModelMixin):
             x_log = x
 
         z1_mean, z1_log_var = self.encoder(x_log, batch)
+        #import pdb; pdb.set_trace()
+        #print(z1_mean.mean(), z1_log_var.mean())
         z1 = self.sampling(z1_mean, z1_log_var)
         outputs = self.decoder(z1, batch)
 

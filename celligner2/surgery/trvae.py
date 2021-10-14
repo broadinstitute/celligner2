@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import anndata
 
-from scarches.models.trvae.trvae import trVAE
-from scarches.trainers.trvae.unsupervised import trVAETrainer
+from celligner2.othermodels.trvae.trvae import trVAE
+from celligner2.trainers.trvae.unsupervised import trVAETrainer
 
 
 def trvae_operate(

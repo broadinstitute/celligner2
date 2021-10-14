@@ -5,8 +5,8 @@ import os
 import torch
 import scvi as scv
 import scarches as sca
-from scarches.plotting import SCVI_EVAL
-from scarches.dataset.trvae.data_handling import remove_sparsity
+from celligner2.plotting import SCVI_EVAL
+from celligner2.dataset.trvae.data_handling import remove_sparsity
 
 data = 'pancreas'
 

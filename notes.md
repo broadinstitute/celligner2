@@ -6,10 +6,16 @@
 
 ### run scARCHES on CCLE + TCGA + CCLF + additional
 
+
+### purify tcga rnaseq
+
+ did someone already do it?
+ 
+
 ### semi supervision like mfMAP (need good annotations)
 
 - sample specific information (will need ashir's new annotations, also annotations for each dataset used)
-- label smoothing on semi-supervion (weak supervion)
+- label smoothing on semi-supervision (weak supervion)
 
 ### do data augmentation thing: (see list in other document)
 

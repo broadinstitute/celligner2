@@ -1,7 +1,7 @@
 import scanpy as sc
 import os
 import scarches as sca
-from scarches.dataset.trvae.data_handling import remove_sparsity
+from celligner2.dataset.trvae.data_handling import remove_sparsity
 import numpy as np
 import time
 import matplotlib.pyplot as plt

@@ -1,4 +1,4 @@
-from scarches.trainers.trvae._utils import train_test_split
+from celligner2.trainers.trvae._utils import train_test_split
 import os
 import scanpy as sc
 import numpy as np

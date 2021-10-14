@@ -148,7 +148,7 @@ def linkcode_resolve(domain, info):
     else:
         linespec = ""
 
-    fn = os.path.relpath(fn, start=os.path.dirname(scarches.__file__))
+    fn = os.path.relpath(fn, start=os.path.dirname(celligner2.__file__))
 
     github = f"https://github.com/theislab/scarches/blob/master/scarches/{fn}{linespec}"
     return github

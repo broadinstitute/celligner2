@@ -9,7 +9,7 @@ from .modules import MaskedLinearDecoder
 from ..trvae.modules import Encoder
 from ..trvae.losses import mse, nb
 from ..trvae._utils import one_hot_encoder
-from scarches.models.base._base import CVAELatentsModelMixin
+from celligner2.othermodels.base._base import CVAELatentsModelMixin
 
 
 class expiMap(nn.Module, CVAELatentsModelMixin):

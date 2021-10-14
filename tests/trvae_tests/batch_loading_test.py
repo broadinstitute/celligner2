@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import WeightedRandomSampler
 
-from scarches.dataset.trvae import AnnotatedDataset
+from celligner2.dataset.trvae import AnnotatedDataset
 
 import re
 from torch._six import container_abcs
@@ -9,7 +9,7 @@ from torch._six import container_abcs
 
 import scanpy as sc
 
-from scarches.trainers.trvae._utils import train_test_split
+from celligner2.trainers.trvae._utils import train_test_split
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)

@@ -21,7 +21,6 @@ def label_encoder(adata, encoder, condition_key=None):
     """
     unique_conditions = list(np.unique(adata.obs[condition_key]))
     labels = np.zeros(adata.shape[0])
-
     if not set(unique_conditions).issubset(set(encoder.keys())):
         print(f"Warning: Labels in adata.obs[{condition_key}] is not a subset of label-encoder!")
         print("Therefore integer value of those labels is set to -1")

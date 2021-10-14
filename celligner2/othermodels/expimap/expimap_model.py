@@ -10,9 +10,9 @@ from copy import deepcopy
 from typing import Optional, Union
 
 from .expimap import expiMap
-from scarches.trainers.expimap.regularized import VIATrainer
-from scarches.models.base._utils import _validate_var_names
-from scarches.models.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
+from celligner2.trainers.expimap.regularized import VIATrainer
+from celligner2.othermodels.base._utils import _validate_var_names
+from celligner2.othermodels.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
 
 
 class EXPIMAP(BaseMixin, SurgeryMixin, CVAELatentsMixin):

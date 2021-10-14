@@ -1,4 +1,4 @@
-from scarches.dataset import trVAEDataset
+from celligner2.dataset import trVAEDataset
 import os
 import scanpy as sc
 import numpy as np

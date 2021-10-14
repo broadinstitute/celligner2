@@ -5,9 +5,9 @@ from anndata import AnnData
 from typing import Optional, Union
 
 from .vaearith import vaeArith
-from scarches.trainers import vaeArithTrainer
-from scarches.models.base._utils import _validate_var_names
-from scarches.models.base._base import BaseMixin
+from celligner2.trainers import vaeArithTrainer
+from celligner2.othermodels.base._utils import _validate_var_names
+from celligner2.othermodels.base._base import BaseMixin
 
 
 class scgen(BaseMixin):
