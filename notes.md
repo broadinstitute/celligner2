@@ -9,8 +9,9 @@
 
 ### purify tcga rnaseq
 
- did someone already do it?
- 
+did someone already do it? NO
+make cibersortX's copy work
+make our own cibersort version 
 
 ### semi supervision like mfMAP (need good annotations)
 
@@ -61,8 +62,12 @@ min(B - (X_b*Y_b + I_b)) s.t. min(MIN(dist(X_a, X_b))) ; max(Y_a\*Y_b)
   - use list of putative mislabelled (outliers in the bioarxiv paper)
   - create fake misslabeling
 - using HCMI's line
-- does known gene dependency of typical cancer lines match with clustering?
+- does known gene dependency of typical pecancer lines match with clustering?
 - ask sanger for their RNAseq
+- make latent space arithmetic
+  - plot X_bar of fake samples compared to others
+  - show diff expr. on fake samples
+- create correlation matrix between X - X_bar, X_cl - X_tu, 
 
 ## ideas
 

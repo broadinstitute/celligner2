@@ -207,7 +207,6 @@ def mmd(y,c,n_conditions, beta, boundary):
        -------
        Returns MMD loss.
     """
-
     # partition separates y into num_cls subsets w.r.t. their labels c
     conditions_mmd = partition(y, c, n_conditions)
     loss = torch.tensor(0.0, device=y.device)
