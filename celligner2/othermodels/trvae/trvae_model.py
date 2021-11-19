@@ -1,16 +1,16 @@
 import inspect
 import os
+
+from numpy.lib.function_base import _percentile_dispatcher
 import torch
 import pickle
 import numpy as np
 
-from anndata import AnnData, read
-from copy import deepcopy
-from typing import Optional, Union
+from anndata import AnnData
+from typing import Optional
 
 from .trvae import trVAE
 from celligner2.trainers.trvae.unsupervised import trVAETrainer
-from celligner2.othermodels.base._utils import _validate_var_names
 from celligner2.othermodels.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
 
 
@@ -64,10 +64,14 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         beta: float = 1,
         use_bn: bool = False,
         use_ln: bool = True,
+        predictors: Optional[list] = None,
+        predictor_keys: Optional[list] = None,
+        use_own_kl: bool = False,
     ):
         self.adata = adata
 
         self.condition_key_ = condition_key
+        self.predictor_keys_ = predictor_keys
 
         if conditions is None:
             if condition_key is not None:
@@ -76,6 +80,14 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 self.conditions_ = []
         else:
             self.conditions_ = conditions
+        
+        if predictors is None:
+            if predictor_keys is not None:
+                self.predictors_ = adata.obs[predictor_keys].unique().tolist()
+            else:
+                self.predictors_ = []
+        else:
+            self.predictors_ = predictors
 
         self.hidden_layer_sizes_ = hidden_layer_sizes
         self.latent_dim_ = latent_dim
@@ -87,6 +99,7 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.beta_ = beta
         self.use_bn_ = use_bn
         self.use_ln_ = use_ln
+        self.use_own_kl_ = use_own_kl
 
         self.input_dim_ = adata.n_vars
 
@@ -103,10 +116,11 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.beta_,
             self.use_bn_,
             self.use_ln_,
+            self.use_own_kl_,
+            self.predictors_,
         )
 
         self.is_trained_ = False
-
         self.trainer = None
 
     def train(
@@ -133,6 +147,7 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.model,
             self.adata,
             condition_key=self.condition_key_,
+            predictor_keys=self.predictor_keys_,
             **kwargs)
         self.trainer.train(n_epochs, lr, eps)
         self.is_trained_ = True
@@ -152,6 +167,9 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             'beta': dct['beta_'],
             'use_bn': dct['use_bn_'],
             'use_ln': dct['use_ln_'],
+            'use_own_kl': dct['use_own_kl_'],
+            'predictors': dct['predictors_'],
+            'predictor_keys': dct['predictor_keys_'],
         }
 
         return init_params

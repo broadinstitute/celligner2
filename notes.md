@@ -4,19 +4,18 @@
 
 ### run scARCHES on CCLE + TCGA (use the batch annotation)
 
+DONE
+
 ### run scARCHES on CCLE + TCGA + CCLF + additional
 
-
-### purify tcga rnaseq
-
-did someone already do it? NO
-make cibersortX's copy work
-make our own cibersort version 
+DONE
 
 ### semi supervision like mfMAP (need good annotations)
 
 - sample specific information (will need ashir's new annotations, also annotations for each dataset used)
 - label smoothing on semi-supervision (weak supervion)
+
+- add Lr scheduler to TRVAE (ReduceLROnPlateau)
 
 ### do data augmentation thing: (see list in other document)
 
@@ -25,8 +24,7 @@ make our own cibersort version
 - mix cell lines and normals to create fake impurity to correct
   - do: ccle_line + impurity * gtex_tissue
   - put semi supervision annotation as impurity: impurity, origin: gtex_tissue
-
-- add more datasets (list in asana)
+- add CCLE / TCGA hg19 expression
 - add pseudo bulk from scRNAseq  (list in asana)
 
 - add mice data (once in graph)
@@ -35,10 +33,27 @@ make our own cibersort version
 
 ### make it graph like and deeper, and add edge prediction
 
+https://github.com/kipoi/models/blob/master/Xpresso/kipoi_example.ipynb
+https://github.com/dmlc/dgl/tree/0.7.x/examples/pytorch/vgae
+https://github.com/shionhonda/gae-dgl/blob/master/gae_dgl/prepare_data.py
+https://optuna.org/
+
 - use dgl's vgae
 - skip connections
 - add graph embedding learning and edge prediction
   - drop links from model and train it to classify missing links (positive, negative)
+
+### purify rnaseq
+
+did someone already do it? NO
+make cibersortX's copy work
+make our own cibersort version?
+remake of cibersortX https://github.com/ysuzukilab/Cibersortx
+--> use : https://github.com/icbi-lab/immunedeconv (EPIC or cibersort)
+
+add correction of bias between single cell and bulk (use william's method)
+
+
 
 ### what mfmap is not doing
 
@@ -53,11 +68,12 @@ min(B - (X_b*Y_b + I_b)) s.t. min(MIN(dist(X_a, X_b))) ; max(Y_a\*Y_b)
 
 ## How to test
 
-- visually
 - confounding matrix (cell type distance (see allie's paper))
+  - plot
 - distance between known good similar lines.
   - list of close matching lines using other paper's data and Allie's data (tumorComparer)
   - fake tumor data (cell line + purity*normal)
+  - 2D pllot with heat color for distances to good qual data
 - ability to find out misslabeled lines:
   - use list of putative mislabelled (outliers in the bioarxiv paper)
   - create fake misslabeling

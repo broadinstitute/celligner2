@@ -226,3 +226,63 @@ def mmd(y,c,n_conditions, beta, boundary):
                 loss += mmd_loss_calc(conditions_mmd[i], conditions_mmd[j])
 
     return beta * loss
+
+def kl(z1_log_var, z1_mean):
+    """kl loss for VAE
+
+        Parameters
+        ----------
+        z1_log_var: torch.Tensor
+            Tensor of shape [batch_size, z_dim]
+        z1_mean: torch.Tensor
+            Tensor of shape [batch_size, z_dim]
+
+        Returns
+        -------
+        Returns the computed kl loss.
+    """
+    z1_var = torch.exp(z1_log_var) + 1e-4
+    return -0.5 * torch.sum(1 + z1_log_var - z1_mean ** 2 - z1_var)
+
+def cnv_recon_loss(recon_x, x):
+    loss=F.binary_cross_entropy(recon_x[0], x[0], reduction='mean')
+    return loss
+
+def expr_recon_loss(recon_x, x):
+    loss=F.binary_cross_entropy(recon_x[1], x[1], reduction='mean')
+    return loss
+
+def classifier_er(pred_y, y,beta=0.5):
+    bootstrap=- (1.0 - beta) * torch.sum(F.softmax(pred_y, dim=1) * F.log_softmax(pred_y, dim=1), dim=1)
+    return torch.sum(bootstrap) 
+
+
+def kl_loss(mean, log_var):
+    loss=-0.5 * torch.sum(1+log_var - mean.pow(2) - log_var.exp())
+    return loss
+
+def classifier_loss1(pred_y, y):
+    loss=F.cross_entropy(pred_y, y, reduction='sum')
+    return loss
+
+def classifier_loss(pred_y, y,tmpidx,beta=0.5):
+    return beta*F.cross_entropy(pred_y[tmpidx], y[tmpidx], reduction='sum')
+
+def classifier_sb_loss(pred_y, y,tmpidx,beta=0.5):
+    # cross_entropy=- t * log(p)
+    utmpidx=[y_ for y_ in range(len(y)) if y[y_] not in tmpidx]
+    #if (len(utmpidx)>0):
+    _, z=torch.max(F.softmax(pred_y[utmpidx], dim=1), dim=1)
+    z=z.view(-1, 1)
+    bootstrap=F.log_softmax(pred_y[utmpidx], dim=1).gather(1, z).view(-1)
+    # second term=(1 - beta) * z * log(p)
+    bootstrap=- (1.0 - beta) * bootstrap
+    loss=beta*F.cross_entropy(pred_y[tmpidx], y[tmpidx], reduction='sum')+torch.sum(bootstrap)
+    return loss
+    #else:
+        #return beta*F.cross_entropy(pred_y[tmpidx], y[tmpidx], reduction='sum')
+
+def classifier_hb_loss(pred_y, y,tmpidx=None,beta=0.5):
+    bootstrap=- (1.0 - beta) * torch.sum(F.softmax(pred_y, dim=1) * F.log_softmax(pred_y, dim=1), dim=1)
+    ce = F.cross_entropy(pred_y[tmpidx], y[tmpidx], reduction='sum') if tmpidx is not None else F.cross_entropy(pred_y, y, reduction='sum')
+    return beta*ce+torch.sum(bootstrap)

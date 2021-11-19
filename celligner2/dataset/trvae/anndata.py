@@ -13,29 +13,37 @@ class AnnotatedDataset(Dataset):
        ----------
        adata: : `~anndata.AnnData`
             Annotated data matrix.
-       condition_key: String
+       conditions_keys: List[String]
             column name of conditions in `adata.obs` data frame.
-       condition_encoder: Dict
+       condition_encoder: List[Dict]
             dictionary of encoded conditions.
-       cell_type_keys: List
+       cell_type_keys: List[String]
             List of column names of different celltype hierarchies in `adata.obs` data frame.
-       cell_type_encoder: Dict
+       cell_type_encoder: List[Dict]
             dictionary of encoded celltypes.
+       predictor_encoder: List[Dict]
+            dictionary of encoded predictors. 
+       predictor_keys: List[String]
+            column name of predictors in `adata.obs` data frame.
     """
     def __init__(self,
                  adata,
-                 condition_key=None,
+                 conditions_keys=None,
                  condition_encoder=None,
                  cell_type_keys=None,
                  cell_type_encoder=None,
+                 predictor_encoder=None,
+                 predictor_keys=None,
                  ):
 
         self.X_norm = None
 
-        self.condition_key = condition_key
+        self.conditions_keys = conditions_keys
         self.condition_encoder = condition_encoder
         self.cell_type_keys = cell_type_keys
         self.cell_type_encoder = cell_type_encoder
+        self.predictor_encoder = predictor_encoder
+        self.predictor_keys = predictor_keys
 
         if sparse.issparse(adata.X):
             adata = remove_sparsity(adata)
@@ -45,27 +53,44 @@ class AnnotatedDataset(Dataset):
         self.labeled_vector = torch.tensor(adata.obs['trvae_labeled'])
 
         # Encode condition strings to integer
-        if self.condition_key is not None:
-            self.conditions = label_encoder(
-                adata,
-                encoder=self.condition_encoder,
-                condition_key=condition_key,
-            )
-            self.conditions = torch.tensor(self.conditions, dtype=torch.long)
+        if self.conditions_keys is not None:
+            conditions = list()
+            for key in self.conditions_keys:
+                condition = label_encoder(
+                    adata,
+                    encoder=self.condition_encoder,
+                    label_key=conditions_keys,
+                )
+                conditions.append(condition)
+            conditions = np.stack(conditions)
+            self.conditions = torch.tensor(conditions, dtype=torch.long)
+
+        # Encode predictors strings to integer
+        if self.predictor_keys is not None:
+            predictors = list()
+            for key in self.predictor_keys:
+                predictor = label_encoder(
+                    adata,
+                    encoder=self.predictor_encoder,
+                    label_key=key,
+                )
+                predictors.append(predictor)
+            predictors = np.stack(predictors)
+            self.predictors = torch.tensor(predictors, dtype=torch.long)
 
         # Encode cell type strings to integer
         if self.cell_type_keys is not None:
-            self.cell_types = list()
+            cell_types = list()
             for cell_type_key in cell_type_keys:
                 level_cell_types = label_encoder(
                     adata,
                     encoder=self.cell_type_encoder,
-                    condition_key=cell_type_key,
+                    label_key=cell_type_key,
                 )
-                self.cell_types.append(level_cell_types)
+                cell_types.append(level_cell_types)
 
-            self.cell_types = np.stack(self.cell_types).T
-            self.cell_types = torch.tensor(self.cell_types, dtype=torch.long)
+            cell_types = np.stack(cell_types).T
+            self.cell_types = torch.tensor(cell_types, dtype=torch.long)
 
     def __getitem__(self, index):
         outputs = dict()
@@ -74,11 +99,14 @@ class AnnotatedDataset(Dataset):
         outputs["labeled"] = self.labeled_vector[index]
         outputs["sizefactor"] = self.size_factors[index]
 
-        if self.condition_key:
+        if self.conditions_keys:
             outputs["batch"] = self.conditions[index]
 
         if self.cell_type_keys:
-            outputs["celltypes"] = self.cell_types[index, :]
+            outputs["celltypes"] = self.cell_types[index]
+
+        if self.predictor_keys:
+            outputs["predictors"] = self.predictors[self.predictor_keys]
 
         return outputs
 
@@ -95,6 +123,15 @@ class AnnotatedDataset(Dataset):
             self.condition_encoder = value
 
     @property
+    def predictor_label_encoder(self) -> dict:
+        return self.predictor_encoder
+
+    @predictors_label_encoder.setter
+    def predictors_label_encoder(self, value: dict):
+        if value is not None:
+            self.predictor_encoder = value
+
+    @property
     def cell_type_label_encoder(self) -> dict:
         return self.cell_type_encoder
 
@@ -105,10 +142,11 @@ class AnnotatedDataset(Dataset):
 
     @property
     def stratifier_weights(self):
-        conditions = self.conditions.detach().cpu().numpy()
+        maincond = self.conditions[:, 0]
+        conditions = maincond.detach().cpu().numpy()
         condition_coeff = 1 / len(conditions)
         weights_per_condition = list()
-        for i in range(len(self.conditions)):
+        for i in range(len(maincond)):
             samples_per_condition = np.count_nonzero(conditions == i)
             if samples_per_condition == 0:
                 weights_per_condition.append(0)

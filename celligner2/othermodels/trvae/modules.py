@@ -206,3 +206,66 @@ class Decoder(nn.Module):
         elif self.recon_loss == "nb":
             dec_mean_gamma = self.mean_decoder(x)
             return dec_mean_gamma, dec_latent
+
+
+class Classifier(nn.Module):
+    """
+    Classifier for the Conditional VAE.
+    """
+    def __init__(self,
+                 layer_sizes: list,
+                 latent_dim: int,
+                 dr_rate: float,
+                 use_bn: bool,
+                 use_ln: bool,
+                 use_dr: bool,
+                 num_classes: int):
+        super().__init__()
+        self.use_dr = use_dr
+        self.n_classes = 0
+        self.n_classes = num_classes
+        layer_sizes = [latent_dim] + layer_sizes + [num_classes]
+        print("Classifier Architecture:")
+        # Create first Classifier layer
+        self.FirstL = nn.Sequential()
+        print("\tFirst Layer in/out: ", layer_sizes[0], layer_sizes[1])
+        self.FirstL.add_module(name="L0", module=nn.Linear(layer_sizes[0], layer_sizes[1], bias=False))
+        if use_bn:
+            self.FirstL.add_module("N0", module=nn.BatchNorm1d(layer_sizes[1], affine=True))
+        elif use_ln:
+            self.FirstL.add_module("N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False))
+        self.FirstL.add_module(name="A0", module=nn.ReLU())
+        if self.use_dr:
+            self.FirstL.add_module(name="D0", module=nn.Dropout(p=dr_rate))
+
+        # Create all Classifier hidden layers
+        if len(layer_sizes) > 2:
+            self.HiddenL = nn.Sequential() 
+            for i, (in_size, out_size) in enumerate(zip(layer_sizes[1:-1], layer_sizes[2:])):
+                if i+3 < len(layer_sizes):
+                    print("\tHidden Layer", i+1, "in/out:", in_size, out_size)
+                    self.HiddenL.add_module(name="L{:d}".format(i+1), module=nn.Linear(in_size, out_size, bias=False))
+                    if use_bn:
+                        self.HiddenL.add_module("N{:d}".format(i+1), module=nn.BatchNorm1d(out_size, affine=True))
+                    elif use_ln:
+                        self.HiddenL.add_module("N{:d}".format(i + 1), module=nn.LayerNorm(out_size, elementwise_affine=False))
+                    self.HiddenL.add_module(name="A{:d}".format(i+1), module=nn.ReLU())
+                    if self.use_dr:
+                        self.HiddenL.add_module(name="D{:d}".format(i+1), module=nn.Dropout(p=dr_rate))
+        else:
+            self.HiddenL = None
+
+        # Create Output Layers
+        print("\tOutput Layer in/out: ", layer_sizes[-2], layer_sizes[-1], "\n")
+        self.classifier = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.Softmax(dim=-1))
+
+    def forward(self, z, classes):
+        # predicts class probabilities from latent space
+        classes = one_hot_encoder(classes, n_cls=self.n_classes)
+        zL = self.FirstL(z)
+        if self.HiddenL is not None:
+            x = self.HiddenL(zL)
+        else:
+            x = zL
+        return self.classifier(x)
+

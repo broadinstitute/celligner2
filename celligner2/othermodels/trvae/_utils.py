@@ -6,6 +6,16 @@ logger = logging.getLogger(__name__)
 
 
 def one_hot_encoder(idx, n_cls):
+    """
+    One hot encoder for categorical features
+
+    Args:
+        idx: index of the categorical feature
+        n_cls: number of classes
+
+    Returns:
+        one hot encoded tensor
+    """
     assert torch.max(idx).item() < n_cls
     if idx.dim() == 1:
         idx = idx.unsqueeze(1)
