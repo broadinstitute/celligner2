@@ -11,11 +11,13 @@ from ._utils import make_dataset, custom_collate, print_progress
 
 
 class Trainer:
-    """ScArches base Trainer class. This class contains the implementation of the base CVAE/TRVAE Trainer.
+    """ScArches base Trainer class. This class contains the implementation of the base CVAE/TRVAE/Celligner Trainer.
+
+        Needs to be extended by the specific Trainer class with a loss() method.
 
        Parameters
        ----------
-       model: trVAE
+       model: a model
             Number of input features (i.e. gene in case of scRNA-seq).
        adata: : `~anndata.AnnData`
             Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
@@ -64,6 +66,7 @@ class Trainer:
                  model,
                  adata,
                  condition_key: str = None,
+                 predictor_keys: list = None,
                  cell_type_keys: str = None,
                  batch_size: int = 128,
                  alpha_epoch_anneal: int = None,
@@ -76,6 +79,7 @@ class Trainer:
         self.adata = adata
         self.model = model
         self.condition_key = condition_key
+        self.predictor_keys = predictor_keys
         self.cell_type_keys = cell_type_keys
 
         self.batch_size = batch_size
@@ -138,13 +142,13 @@ class Trainer:
             cell_type_keys=self.cell_type_keys,
             condition_encoder=self.model.condition_encoder,
             cell_type_encoder=self.model.cell_type_encoder,
+            predictor_keys=self.predictor_keys,
+            predictor_encoder=self.model.predictor_encoder,
         )
 
     def initialize_loaders(self):
         """
         Initializes Train-/Test Data and Dataloaders with custom_collate and WeightedRandomSampler for Trainloader.
-        Returns:
-
         """
         if self.n_samples is None or self.n_samples > len(self.train_data):
             self.n_samples = len(self.train_data)
@@ -182,9 +186,6 @@ class Trainer:
     def calc_alpha_coeff(self):
         """Calculates current alpha coefficient for alpha annealing.
 
-           Parameters
-           ----------
-
            Returns
            -------
            Current annealed alpha value
@@ -220,7 +221,7 @@ class Trainer:
                 for key, batch in batch_data.items():
                     batch_data[key] = batch.to(self.device)
 
-                # Loss Calculation
+                # Loss Calculation 
                 self.on_iteration(batch_data)
 
             # Validation of Model, Monitoring, Early Stopping
@@ -286,16 +287,16 @@ class Trainer:
         self.model.eval()
         self.iter_logs = defaultdict(list)
         # Calculate Validation Losses
-        for val_iter, batch_data in enumerate(self.dataloader_valid):
+        for _, batch_data in enumerate(self.dataloader_valid):
             for key, batch in batch_data.items():
                 batch_data[key] = batch.to(self.device)
 
-            val_loss = self.loss(batch_data)
+            _ = self.loss(batch_data)
 
         # Get Validation Logs
         for key in self.iter_logs:
             self.logs["val_" + key].append(np.array(self.iter_logs[key]).mean())
-
+        # switch back to train mode
         self.model.train()
 
     def check_early_stop(self):

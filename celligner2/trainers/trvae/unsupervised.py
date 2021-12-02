@@ -13,9 +13,9 @@ class trVAETrainer(Trainer):
            adata: : `~anndata.AnnData`
                 Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
                 for 'mse' loss.
-           condition_keys: List[str]
+           condition_key: String
                 column name of conditions in `adata.obs` data frame.
-           cell_type_keys: String
+           cell_type_key: String
                 column name of celltypes in `adata.obs` data frame.
            train_frac: Float
                 Defines the fraction of data that is used for training and data that is used for validation.
@@ -50,8 +50,6 @@ class trVAETrainer(Trainer):
                 Passes the 'n_workers' parameter for the torch.utils.data.DataLoader class.
            seed: Integer
                 Define a specific random seed to get reproducable results.
-           predictor_keys: List[str]
-                List of column names of predictors in `adata.obs` data frame.
         """
     def __init__(
             self,
@@ -62,8 +60,8 @@ class trVAETrainer(Trainer):
         super().__init__(model, adata, **kwargs)
 
     def loss(self, total_batch=None):
-        recon_loss, kl_loss, mmd_loss, class_ce_loss = self.model(**total_batch)
-        loss = recon_loss + self.calc_alpha_coeff()*kl_loss + mmd_loss + class_ce_loss
+        recon_loss, kl_loss, mmd_loss = self.model(**total_batch)
+        loss = recon_loss + self.calc_alpha_coeff()*kl_loss + mmd_loss
         self.iter_logs["loss"].append(loss.item())
         self.iter_logs["unweighted_loss"].append(recon_loss.item() + kl_loss.item() + mmd_loss.item())
         self.iter_logs["recon_loss"].append(recon_loss.item())

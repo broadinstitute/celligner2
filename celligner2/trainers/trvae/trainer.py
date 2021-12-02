@@ -64,7 +64,6 @@ class Trainer:
                  model,
                  adata,
                  condition_key: str = None,
-                 predictor_keys: list = None,
                  cell_type_keys: str = None,
                  batch_size: int = 128,
                  alpha_epoch_anneal: int = None,
@@ -77,7 +76,6 @@ class Trainer:
         self.adata = adata
         self.model = model
         self.condition_key = condition_key
-        self.predictor_keys = predictor_keys
         self.cell_type_keys = cell_type_keys
 
         self.batch_size = batch_size
@@ -140,8 +138,6 @@ class Trainer:
             cell_type_keys=self.cell_type_keys,
             condition_encoder=self.model.condition_encoder,
             cell_type_encoder=self.model.cell_type_encoder,
-            predictor_keys=self.predictor_keys,
-            predictor_encoder=self.model.predictor_encoder,
         )
 
     def initialize_loaders(self):
@@ -185,6 +181,9 @@ class Trainer:
 
     def calc_alpha_coeff(self):
         """Calculates current alpha coefficient for alpha annealing.
+
+           Parameters
+           ----------
 
            Returns
            -------

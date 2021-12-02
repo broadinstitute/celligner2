@@ -1,21 +1,20 @@
 from .trainer import Trainer
-import torch
 
 
-class trVAETrainer(Trainer):
-    """ScArches Unsupervised Trainer class. This class contains the implementation of the unsupervised CVAE/TRVAE
+class CellignerTrainer(Trainer):
+    """ScArches Unsupervised Trainer class. This class contains the implementation of the unsupervised CVAE/Celligner
        Trainer.
 
            Parameters
            ----------
-           model: trVAE
+           model: CellignerModel
                 Number of input features (i.e. gene in case of scRNA-seq).
            adata: : `~anndata.AnnData`
                 Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
                 for 'mse' loss.
-           condition_key: String
+           condition_keys: List[str]
                 column name of conditions in `adata.obs` data frame.
-           cell_type_key: String
+           cell_type_keys: String
                 column name of celltypes in `adata.obs` data frame.
            train_frac: Float
                 Defines the fraction of data that is used for training and data that is used for validation.
@@ -50,6 +49,8 @@ class trVAETrainer(Trainer):
                 Passes the 'n_workers' parameter for the torch.utils.data.DataLoader class.
            seed: Integer
                 Define a specific random seed to get reproducable results.
+           predictor_keys: List[str]
+                List of column names of predictors in `adata.obs` data frame.
         """
     def __init__(
             self,
@@ -60,12 +61,13 @@ class trVAETrainer(Trainer):
         super().__init__(model, adata, **kwargs)
 
     def loss(self, total_batch=None):
-        recon_loss, kl_loss, mmd_loss = self.model(**total_batch)
-        loss = recon_loss + self.calc_alpha_coeff()*kl_loss + mmd_loss
+        recon_loss, kl_loss, mmd_loss, class_ce_loss = self.model(**total_batch)
+        loss = recon_loss + self.calc_alpha_coeff()*kl_loss + mmd_loss + class_ce_loss
         self.iter_logs["loss"].append(loss.item())
         self.iter_logs["unweighted_loss"].append(recon_loss.item() + kl_loss.item() + mmd_loss.item())
         self.iter_logs["recon_loss"].append(recon_loss.item())
         self.iter_logs["kl_loss"].append(kl_loss.item())
+        self.iter_logs["class_ce_loss"].append(class_ce_loss.item())
         if self.model.use_mmd:
             self.iter_logs["mmd_loss"].append(mmd_loss.item())
         return loss

@@ -126,8 +126,8 @@ class AnnotatedDataset(Dataset):
     def predictor_label_encoder(self) -> dict:
         return self.predictor_encoder
 
-    @predictors_label_encoder.setter
-    def predictors_label_encoder(self, value: dict):
+    @predictor_label_encoder.setter
+    def predictor_label_encoder(self, value: dict):
         if value is not None:
             self.predictor_encoder = value
 
