@@ -1,20 +1,20 @@
 import inspect
 import os
+
+from numpy.lib.function_base import _percentile_dispatcher
 import torch
 import pickle
 import numpy as np
 
-from anndata import AnnData, read
-from copy import deepcopy
-from typing import Optional, Union
+from anndata import AnnData
+from typing import Optional
 
-from .trvae import trVAE
-from scarches.trainers.trvae.unsupervised import trVAETrainer
-from scarches.models.base._utils import _validate_var_names
-from scarches.models.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
+from .celligner2 import Celligner2
+from celligner2.trainers.celligner2.semisupervised import Celligner2Trainer
+from celligner2.othermodels.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
 
 
-class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
+class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     """Model for scArches class. This class contains the implementation of Conditional Variational Auto-encoder.
 
        Parameters
@@ -22,7 +22,7 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
        adata: : `~anndata.AnnData`
             Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
             for 'mse' loss.
-       condition_key: String
+       condition_keys: String
             column name of conditions in `adata.obs` data frame.
        conditions: List
             List of Condition names that the used data will contain to get the right encoding when used after reloading.
@@ -52,9 +52,10 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     def __init__(
         self,
         adata: AnnData,
-        condition_key: str = None,
+        condition_keys: list = None,
         conditions: Optional[list] = None,
         hidden_layer_sizes: list = [256, 64],
+        classifier_hidden_layer_sizes_: list = [64, 32],
         latent_dim: int = 10,
         dr_rate: float = 0.05,
         use_mmd: bool = True,
@@ -64,20 +65,50 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         beta: float = 1,
         use_bn: bool = False,
         use_ln: bool = True,
+        predictors: Optional[list] = None,
+        predictor_keys: Optional[list] = None,
+        use_own_kl: bool = False,
+        miss: str = 'U',
     ):
         self.adata = adata
 
-        self.condition_key_ = condition_key
+        self.condition_keys_ = condition_keys
+        self.predictor_keys_ = predictor_keys
 
         if conditions is None:
-            if condition_key is not None:
-                self.conditions_ = adata.obs[condition_key].unique().tolist()
+            if condition_keys is not None:
+                self.conditions_ = list(
+                    set(adata.obs[condition_keys].values.flatten())-set(miss))
+                if len(self.conditions_) != sum(
+                    [len(set(adata.obs[condition_key])-set(miss)) for condition_key in condition_keys]):
+                    raise ValueError('conditions need to be unique even amongst \
+                        different columns')
+                self.cond_groupmap = [[i in set(adata.obs[condition_key]) for i in self.conditions_] for condition_key in condition_keys]
             else:
                 self.conditions_ = []
+                self.cond_groupmap = []
         else:
             self.conditions_ = conditions
+            self.cond_groupmap = [True] * len(self.conditions_)
+        
+        if predictors is None:
+            if predictor_keys is not None:
+                self.predictors_ = list(
+                    set(adata.obs[predictor_keys].values.flatten()) - set(miss))
+                if len(self.predictors_) != sum(
+                    [len(set(adata.obs[predictor_key]) - set(miss)) for predictor_key in predictor_keys]):
+                    raise ValueError('Predictors need to be unique even amongst \
+                        different columns')
+                self.pred_groupmap = [[i in set(adata.obs[predictor_key]) for i in self.predictors_] for predictor_key in predictor_keys]
+            else:
+                self.predictors_ = []
+                self.pred_groupmap = []
+        else:
+            self.predictors_ = predictors
+            self.pred_groupmap = [True] * len(self.predictors_)
 
         self.hidden_layer_sizes_ = hidden_layer_sizes
+        self.classifier_hidden_layer_sizes_ = classifier_hidden_layer_sizes_
         self.latent_dim_ = latent_dim
         self.dr_rate_ = dr_rate
         self.use_mmd_ = use_mmd
@@ -87,16 +118,20 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.beta_ = beta
         self.use_bn_ = use_bn
         self.use_ln_ = use_ln
+        self.use_own_kl_ = use_own_kl
 
         self.input_dim_ = adata.n_vars
 
-        self.model = trVAE(
+        self.model = Celligner2(
             self.input_dim_,
             self.conditions_,
+            self.predictors_,
             self.hidden_layer_sizes_,
+            self.classifier_hidden_layer_sizes_,
             self.latent_dim_,
             self.dr_rate_,
             self.use_mmd_,
+            self.use_own_kl_,
             self.mmd_on_,
             self.mmd_boundary_,
             self.recon_loss_,
@@ -106,7 +141,6 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         )
 
         self.is_trained_ = False
-
         self.trainer = None
 
     def train(
@@ -129,10 +163,11 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
            kwargs
                 kwargs for the TrVAE trainer.
         """
-        self.trainer = trVAETrainer(
+        self.trainer = Celligner2Trainer(
             self.model,
             self.adata,
-            condition_key=self.condition_key_,
+            condition_keys=self.condition_keys_,
+            predictor_keys=self.predictor_keys_,
             **kwargs)
         self.trainer.train(n_epochs, lr, eps)
         self.is_trained_ = True
@@ -140,7 +175,7 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     @classmethod
     def _get_init_params_from_dict(cls, dct):
         init_params = {
-            'condition_key': dct['condition_key_'],
+            'condition_keys': dct['condition_keys_'],
             'conditions': dct['conditions_'],
             'hidden_layer_sizes': dct['hidden_layer_sizes_'],
             'latent_dim': dct['latent_dim_'],
@@ -152,6 +187,9 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             'beta': dct['beta_'],
             'use_bn': dct['use_bn_'],
             'use_ln': dct['use_ln_'],
+            'use_own_kl': dct['use_own_kl_'],
+            'predictors': dct['predictors_'],
+            'predictor_keys': dct['predictor_keys_'],
         }
 
         return init_params
@@ -161,6 +199,6 @@ class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         if adata.n_vars != dct['input_dim_']:
             raise ValueError("Incorrect var dimension")
 
-        adata_conditions = adata.obs[dct['condition_key_']].unique().tolist()
+        adata_conditions = adata.obs[dct['condition_keys_']].unique().tolist()
         if not set(adata_conditions).issubset(dct['conditions_']):
             raise ValueError("Incorrect conditions")

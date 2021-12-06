@@ -1,7 +1,7 @@
 from .trainer import Trainer
 
 
-class CellignerTrainer(Trainer):
+class Celligner2Trainer(Trainer):
     """ScArches Unsupervised Trainer class. This class contains the implementation of the unsupervised CVAE/Celligner
        Trainer.
 

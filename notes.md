@@ -12,9 +12,10 @@ DONE
 
 ### semi supervision like mfMAP (need good annotations)
 
+- make MMD work
+- there might be a batch issue with the MMD regularization.. on only 1400 CCLE samples..
 - sample specific information (will need ashir's new annotations, also annotations for each dataset used)
 - label smoothing on semi-supervision (weak supervion)
-
 - add Lr scheduler to TRVAE (ReduceLROnPlateau)
 
 ### do data augmentation thing: (see list in other document)
@@ -52,8 +53,6 @@ remake of cibersortX https://github.com/ysuzukilab/Cibersortx
 --> use : https://github.com/icbi-lab/immunedeconv (EPIC or cibersort)
 
 add correction of bias between single cell and bulk (use william's method)
-
-
 
 ### what mfmap is not doing
 

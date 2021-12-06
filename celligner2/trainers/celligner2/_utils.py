@@ -5,7 +5,7 @@ import torch
 import collections.abc as container_abcs
 from torch.utils.data import DataLoader
 
-from celligner2.dataset import trVAEDataset
+from celligner2.dataset import celligner2Dataset
 
 
 def print_progress(epoch, logs, n_epochs=10000, only_val_losses=True):
@@ -70,7 +70,7 @@ def _print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, leng
     sys.stdout.flush()
 
 
-def train_test_split(adata, train_frac=0.85, condition_key=None, cell_type_key=None):
+def train_test_split(adata, train_frac=0.85, cell_type_key=None):
     """Splits 'Anndata' object into training and validation data.
 
        Parameters
@@ -91,8 +91,8 @@ def train_test_split(adata, train_frac=0.85, condition_key=None, cell_type_key=N
         indices = np.arange(adata.shape[0])
 
         if cell_type_key is not None:
-            labeled_idx = indices[adata.obs['trvae_labeled'] == 1]
-            unlabeled_idx = indices[adata.obs['trvae_labeled'] == 0]
+            labeled_idx = indices[adata.obs['celligner2_labeled'] == 1]
+            unlabeled_idx = indices[adata.obs['celligner2_labeled'] == 0]
             train_labeled_idx = []
             val_labeled_idx = []
             train_unlabeled_idx = []
@@ -115,20 +115,6 @@ def train_test_split(adata, train_frac=0.85, condition_key=None, cell_type_key=N
             train_idx = np.concatenate(train_idx)
             val_idx = np.concatenate(val_idx)
 
-        elif condition_key is not None:
-            train_idx = []
-            val_idx = []
-            conditions = adata.obs[condition_key].unique().tolist()
-            for condition in conditions:
-                cond_idx = indices[adata.obs[condition_key] == condition]
-                n_train_samples = int(np.ceil(train_frac * len(cond_idx)))
-                np.random.shuffle(cond_idx)
-                train_idx.append(cond_idx[:n_train_samples])
-                val_idx.append(cond_idx[n_train_samples:])
-
-            train_idx = np.concatenate(train_idx)
-            val_idx = np.concatenate(val_idx)
-
         else:
             n_train_samples = int(np.ceil(train_frac * len(indices)))
             np.random.shuffle(indices)
@@ -143,11 +129,13 @@ def train_test_split(adata, train_frac=0.85, condition_key=None, cell_type_key=N
 
 def make_dataset(adata,
                  train_frac=0.9,
-                 condition_key=None,
+                 condition_keys=None,
                  cell_type_keys=None,
                  condition_encoder=None,
                  cell_type_encoder=None,
                  labeled_indices=None,
+                 predictor_keys=None,
+                 predictor_encoder=None,
                  ):
     """Splits 'adata' into train and validation data and converts them into 'CustomDatasetFromAdata' objects.
 
@@ -161,13 +149,13 @@ def make_dataset(adata,
     size_factors = adata.X.sum(1)
     if len(size_factors.shape) < 2:
         size_factors = np.expand_dims(size_factors, axis=1)
-    adata.obs['trvae_size_factors'] = size_factors
+    adata.obs['celligner2_size_factors'] = size_factors
 
     # Preprare data for semisupervised learning
     labeled_array = np.zeros((len(adata), 1))
     if labeled_indices is not None:
         labeled_array[labeled_indices] = 1
-    adata.obs['trvae_labeled'] = labeled_array
+    adata.obs['celligner2_labeled'] = labeled_array
 
     if cell_type_keys is not None:
         finest_level = None
@@ -178,28 +166,29 @@ def make_dataset(adata,
                 finest_level = cell_type_key
 
         train_adata, validation_adata = train_test_split(adata, train_frac, cell_type_key=finest_level)
-
-    elif condition_key is not None:
-        train_adata, validation_adata = train_test_split(adata, train_frac, condition_key=condition_key)
     else:
         train_adata, validation_adata = train_test_split(adata, train_frac)
 
-    data_set_train = trVAEDataset(
+    data_set_train = celligner2Dataset(
         train_adata,
-        condition_key=condition_key,
+        condition_keys=condition_keys,
         cell_type_keys=cell_type_keys,
         condition_encoder=condition_encoder,
         cell_type_encoder=cell_type_encoder,
+        predictor_encoder=predictor_encoder,
+        predictor_keys=predictor_keys,
     )
     if train_frac == 1:
         return data_set_train, None
     else:
-        data_set_valid = trVAEDataset(
+        data_set_valid = celligner2Dataset(
             validation_adata,
-            condition_key=condition_key,
+            condition_keys=condition_keys,
             cell_type_keys=cell_type_keys,
             condition_encoder=condition_encoder,
             cell_type_encoder=cell_type_encoder,
+            predictor_encoder=predictor_encoder,
+            predictor_keys=predictor_keys,
         )
         return data_set_train, data_set_valid
 

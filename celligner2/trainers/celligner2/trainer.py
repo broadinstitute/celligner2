@@ -22,7 +22,7 @@ class Trainer:
        adata: : `~anndata.AnnData`
             Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
             for 'mse' loss.
-       condition_key: String
+       condition_keys: String
             column name of conditions in `adata.obs` data frame.
        cell_type_keys: List
             List of column names of different celltype levels in `adata.obs` data frame.
@@ -65,9 +65,9 @@ class Trainer:
     def __init__(self,
                  model,
                  adata,
-                 condition_key: str = None,
+                 condition_keys: list = None,
                  predictor_keys: list = None,
-                 cell_type_keys: str = None,
+                 cell_type_keys: list = None,
                  batch_size: int = 128,
                  alpha_epoch_anneal: int = None,
                  alpha_kl: float = 1.,
@@ -78,7 +78,7 @@ class Trainer:
 
         self.adata = adata
         self.model = model
-        self.condition_key = condition_key
+        self.condition_keys = condition_keys
         self.predictor_keys = predictor_keys
         self.cell_type_keys = cell_type_keys
 
@@ -138,7 +138,7 @@ class Trainer:
         self.train_data, self.valid_data = make_dataset(
             self.adata,
             train_frac=self.train_frac,
-            condition_key=self.condition_key,
+            condition_keys=self.condition_keys,
             cell_type_keys=self.cell_type_keys,
             condition_encoder=self.model.condition_encoder,
             cell_type_encoder=self.model.cell_type_encoder,

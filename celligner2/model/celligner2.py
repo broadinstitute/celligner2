@@ -5,52 +5,57 @@ import torch.nn as nn
 from torch.distributions import Normal, kl_divergence
 import torch.nn.functional as F
 
-from .modules import Encoder, Decoder
-from .losses import mse, mmd, zinb, nb
+from .modules import Encoder, Decoder, Classifier
+from .losses import mse, mmd, zinb, nb, classifier_er, classifier_loss1, classifier_hb_loss
 from ._utils import one_hot_encoder
-from scarches.models.base._base import CVAELatentsModelMixin
+from celligner2.othermodels.base._base import CVAELatentsModelMixin
 
 
-class trVAE(nn.Module, CVAELatentsModelMixin):
+class Celligner2(nn.Module, CVAELatentsModelMixin):
     """ScArches model class. This class contains the implementation of Conditional Variational Auto-encoder.
 
-       Parameters
-       ----------
-       input_dim: Integer
+        Parameters
+        ----------
+        input_dim: Integer
             Number of input features (i.e. gene in case of scRNA-seq).
-       conditions: List
+        conditions: List
             List of Condition names that the used data will contain to get the right encoding when used after reloading.
-       hidden_layer_sizes: List
+        hidden_layer_sizes: List
             A list of hidden layer sizes for encoder network. Decoder network will be the reversed order.
-       latent_dim: Integer
+        latent_dim: Integer
             Bottleneck layer (z)  size.
-       dr_rate: Float
-            Dropput rate applied to all layers, if `dr_rate`==0 no dropout will be applied.
-       use_mmd: Boolean
+        dr_rate: Float
+            Dropout rate applied to all layers, if `dr_rate`==0 no dropout will be applied.
+        use_mmd: Boolean
             If 'True' an additional MMD loss will be calculated on the latent dim. 'z' or the first decoder layer 'y'.
-       mmd_on: String
+        mmd_on: String
             Choose on which layer MMD loss will be calculated on if 'use_mmd=True': 'z' for latent dim or 'y' for first
             decoder layer.
-       mmd_boundary: Integer or None
+        mmd_boundary: Integer or None
             Choose on how many conditions the MMD loss should be calculated on. If 'None' MMD will be calculated on all
             conditions.
-       recon_loss: String
+        recon_loss: String
             Definition of Reconstruction-Loss-Method, 'mse', 'nb' or 'zinb'.
-       beta: Float
+        beta: Float
             Scaling Factor for MMD loss. Higher beta values result in stronger batch-correction at a cost of worse biological variation.
-       use_bn: Boolean
+        use_bn: Boolean
             If `True` batch normalization will be applied to layers.
-       use_ln: Boolean
+        use_ln: Boolean
             If `True` layer normalization will be applied to layers.
+        use_own_kl: Boolean
+            If `True` the KL-Divergence will be calculated by the network itself. Otherwise torch
     """
 
     def __init__(self,
                  input_dim: int,
                  conditions: list,
+                 predictors: list,
                  hidden_layer_sizes: list = [256, 64],
+                 classifier_hidden_layer_sizes: list = [64, 32],
                  latent_dim: int = 10,
                  dr_rate: float = 0.05,
                  use_mmd: bool = False,
+                 use_own_kl: bool = False,
                  mmd_on: str = 'z',
                  mmd_boundary: Optional[int] = None,
                  recon_loss: Optional[str] = 'nb',
@@ -67,9 +72,13 @@ class trVAE(nn.Module, CVAELatentsModelMixin):
         print("\nINITIALIZING NEW NETWORK..............")
         self.input_dim = input_dim
         self.latent_dim = latent_dim
+        self.n_predictors = len(predictors)
         self.n_conditions = len(conditions)
+        self.use_own_kl = use_own_kl
         self.conditions = conditions
+        self.predictors = predictors
         self.condition_encoder = {k: v for k, v in zip(conditions, range(len(conditions)))}
+        self.predictor_encoder = {k: v for k, v in zip(predictors, range(len(predictors)))}
         self.cell_type_encoder = None
         self.recon_loss = recon_loss
         self.mmd_boundary = mmd_boundary
@@ -97,6 +106,7 @@ class trVAE(nn.Module, CVAELatentsModelMixin):
         decoder_layer_sizes = self.hidden_layer_sizes.copy()
         decoder_layer_sizes.reverse()
         decoder_layer_sizes.append(self.input_dim)
+        self.classifier_hidden_layer_sizes = classifier_hidden_layer_sizes
         self.encoder = Encoder(encoder_layer_sizes,
                                self.latent_dim,
                                self.use_bn,
@@ -104,6 +114,14 @@ class trVAE(nn.Module, CVAELatentsModelMixin):
                                self.use_dr,
                                self.dr_rate,
                                self.n_conditions)
+        self.classifier = Classifier(self.classifier_hidden_layer_sizes,
+                                    self.latent_dim,
+                                    self.dr_rate,
+                                    self.use_dr,
+                                    self.use_bn,
+                                    self.use_ln,
+                                    self.n_predictors
+                                    )
         self.decoder = Decoder(decoder_layer_sizes,
                                self.latent_dim,
                                self.recon_loss,
@@ -113,14 +131,17 @@ class trVAE(nn.Module, CVAELatentsModelMixin):
                                self.dr_rate,
                                self.n_conditions)
 
-    def forward(self, x=None, batch=None, sizefactor=None, labeled=None):
+    def forward(self, x=None, batch=None, sizefactor=None, classes=None,):
         x_log = torch.log(1 + x)
         if self.recon_loss == 'mse':
             x_log = x
 
         z1_mean, z1_log_var = self.encoder(x_log, batch)
+        #import pdb; pdb.set_trace()
+        #print(z1_mean.mean(), z1_log_var.mean())
         z1 = self.sampling(z1_mean, z1_log_var)
         outputs = self.decoder(z1, batch)
+        pred_classes = self.classifier(z1, classes)
 
         if self.recon_loss == "mse":
             recon_x, y1 = outputs
@@ -141,17 +162,22 @@ class trVAE(nn.Module, CVAELatentsModelMixin):
             recon_loss = -nb(x=x, mu=dec_mean, theta=dispersion).sum(dim=-1).mean()
 
         z1_var = torch.exp(z1_log_var) + 1e-4
-        kl_div = kl_divergence(
-            Normal(z1_mean, torch.sqrt(z1_var)),
-            Normal(torch.zeros_like(z1_mean), torch.ones_like(z1_var))
-        ).sum(dim=1).mean()
+        if self.use_own_KL:
+            kl_div = -0.5 * torch.sum(1 + z1_log_var - z1_mean ** 2 - z1_var)
+        else:
+            kl_div = kl_divergence(
+                Normal(z1_mean, torch.sqrt(z1_var)),
+                Normal(torch.zeros_like(z1_mean), torch.ones_like(z1_var))
+            ).sum(dim=1).mean()
 
         mmd_loss = torch.tensor(0.0, device=z1.device)
 
         if self.use_mmd:
             if self.mmd_on == "z":
-                mmd_loss = mmd(z1, batch,self.n_conditions, self.beta, self.mmd_boundary)
+                mmd_loss = mmd(z1, batch, self.n_conditions, self.beta, self.mmd_boundary)
             else:
-                mmd_loss = mmd(y1, batch,self.n_conditions, self.beta, self.mmd_boundary)
+                mmd_loss = mmd(y1, batch, self.n_conditions, self.beta, self.mmd_boundary)
 
-        return recon_loss, kl_div, mmd_loss
+        class_ce_loss = classifier_hb_loss(pred_classes, classes, )
+
+        return recon_loss, kl_div, mmd_loss, class_ce_loss
