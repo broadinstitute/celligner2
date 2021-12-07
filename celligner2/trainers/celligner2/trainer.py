@@ -24,7 +24,7 @@ class Trainer:
             for 'mse' loss.
        condition_keys: String
             column name of conditions in `adata.obs` data frame.
-       cell_type_keys: List
+       cell_type_key: List
             List of column names of different celltype levels in `adata.obs` data frame.
        batch_size: Integer
             Defines the batch size that is used during each Iteration
@@ -67,7 +67,7 @@ class Trainer:
                  adata,
                  condition_keys: list = None,
                  predictor_keys: list = None,
-                 cell_type_keys: list = None,
+                 cell_type_key: str = None,
                  batch_size: int = 128,
                  alpha_epoch_anneal: int = None,
                  alpha_kl: float = 1.,
@@ -80,7 +80,7 @@ class Trainer:
         self.model = model
         self.condition_keys = condition_keys
         self.predictor_keys = predictor_keys
-        self.cell_type_keys = cell_type_keys
+        self.cell_type_key = cell_type_key
 
         self.batch_size = batch_size
         self.alpha_epoch_anneal = alpha_epoch_anneal
@@ -139,7 +139,7 @@ class Trainer:
             self.adata,
             train_frac=self.train_frac,
             condition_keys=self.condition_keys,
-            cell_type_keys=self.cell_type_keys,
+            cell_type_key=self.cell_type_key,
             condition_encoder=self.model.condition_encoder,
             cell_type_encoder=self.model.cell_type_encoder,
             predictor_keys=self.predictor_keys,

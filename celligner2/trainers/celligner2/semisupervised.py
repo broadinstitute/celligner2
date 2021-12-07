@@ -14,7 +14,7 @@ class Celligner2Trainer(Trainer):
                 for 'mse' loss.
            condition_keys: List[str]
                 column name of conditions in `adata.obs` data frame.
-           cell_type_keys: String
+           cell_type_key: String
                 column name of celltypes in `adata.obs` data frame.
            train_frac: Float
                 Defines the fraction of data that is used for training and data that is used for validation.

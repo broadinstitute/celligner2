@@ -130,7 +130,7 @@ def train_test_split(adata, train_frac=0.85, cell_type_key=None):
 def make_dataset(adata,
                  train_frac=0.9,
                  condition_keys=None,
-                 cell_type_keys=None,
+                 cell_type_key=None,
                  condition_encoder=None,
                  cell_type_encoder=None,
                  labeled_indices=None,
@@ -157,10 +157,10 @@ def make_dataset(adata,
         labeled_array[labeled_indices] = 1
     adata.obs['celligner2_labeled'] = labeled_array
 
-    if cell_type_keys is not None:
+    if cell_type_key is not None:
         finest_level = None
         n_cts = 0
-        for cell_type_key in cell_type_keys:
+        for cell_type_key in cell_type_key:
             if len(adata.obs[cell_type_key].unique().tolist()) >= n_cts:
                 n_cts = len(adata.obs[cell_type_key].unique().tolist())
                 finest_level = cell_type_key
@@ -172,7 +172,7 @@ def make_dataset(adata,
     data_set_train = celligner2Dataset(
         train_adata,
         condition_keys=condition_keys,
-        cell_type_keys=cell_type_keys,
+        cell_type_key=cell_type_key,
         condition_encoder=condition_encoder,
         cell_type_encoder=cell_type_encoder,
         predictor_encoder=predictor_encoder,
@@ -184,7 +184,7 @@ def make_dataset(adata,
         data_set_valid = celligner2Dataset(
             validation_adata,
             condition_keys=condition_keys,
-            cell_type_keys=cell_type_keys,
+            cell_type_key=cell_type_key,
             condition_encoder=condition_encoder,
             cell_type_encoder=cell_type_encoder,
             predictor_encoder=predictor_encoder,

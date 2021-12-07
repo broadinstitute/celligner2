@@ -9,9 +9,9 @@ from copy import deepcopy
 from typing import Optional, Union
 
 from .trvae import trVAE
-from scarches.trainers.trvae.unsupervised import trVAETrainer
-from scarches.models.base._utils import _validate_var_names
-from scarches.models.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
+from celligner2.trainers.trvae.unsupervised import trVAETrainer
+from celligner2.othermodels.base._utils import _validate_var_names
+from celligner2.othermodels.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
 
 
 class TRVAE(BaseMixin, SurgeryMixin, CVAELatentsMixin):

@@ -52,10 +52,10 @@ class trVAETrainer(Trainer):
                 Define a specific random seed to get reproducable results.
         """
     def __init__(
-            self,
-            model,
-            adata,
-            **kwargs
+        self,
+        model,
+        adata,
+        **kwargs
     ):
         super().__init__(model, adata, **kwargs)
 

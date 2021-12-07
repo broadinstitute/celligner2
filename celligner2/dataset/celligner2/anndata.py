@@ -104,7 +104,7 @@ class AnnotatedDataset(Dataset):
             outputs["celltypes"] = self.cell_types[index]
 
         if self.predictor_keys:
-            outputs["predictors"] = self.predictors[self.predictor_keys,:]
+            outputs["predictors"] = self.predictors[index,:]
 
         return outputs
 
