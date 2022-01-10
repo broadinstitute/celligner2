@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 from . import _alluvial
 
 
-def sankey_diagram(data, save_path=None, show=False, **kwargs):
+def sankey_diagram(data, save_path=None, show=False, title='sankey diagram', **kwargs):
     """Draws Sankey diagram for the given ``data``.
         Parameters
         ----------
@@ -39,6 +39,7 @@ def sankey_diagram(data, save_path=None, show=False, **kwargs):
                         labels=kwargs.get("labels", None),
                         fontname=kwargs.get("fontname", "Arial"),
                         )
+    ax.set_title(title)
     if save_path is not None:
         plt.savefig(save_path, dpi=kwargs.get("dpi", 200), bbox_inches='tight')
     if show:

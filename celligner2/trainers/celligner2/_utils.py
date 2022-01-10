@@ -101,6 +101,7 @@ def train_test_split(adata, train_frac=0.85, cell_type_key=None):
                 cell_types = adata[labeled_idx].obs[cell_type_key].unique().tolist()
                 for cell_type in cell_types:
                     ct_idx = labeled_idx[adata[labeled_idx].obs[cell_type_key] == cell_type]
+                    import pdb; pdb.set_trace()
                     n_train_samples = int(np.ceil(train_frac * len(ct_idx)))
                     np.random.shuffle(ct_idx)
                     train_labeled_idx.append(ct_idx[:n_train_samples])
@@ -136,6 +137,7 @@ def make_dataset(adata,
                  labeled_indices=None,
                  predictor_keys=None,
                  predictor_encoder=None,
+                 min_weight=0.0,
                  ):
     """Splits 'adata' into train and validation data and converts them into 'CustomDatasetFromAdata' objects.
 
@@ -177,6 +179,7 @@ def make_dataset(adata,
         cell_type_encoder=cell_type_encoder,
         predictor_encoder=predictor_encoder,
         predictor_keys=predictor_keys,
+        minweight=min_weight,
     )
     if train_frac == 1:
         return data_set_train, None
@@ -189,6 +192,7 @@ def make_dataset(adata,
             cell_type_encoder=cell_type_encoder,
             predictor_encoder=predictor_encoder,
             predictor_keys=predictor_keys,
+            minweight=min_weight,
         )
         return data_set_train, data_set_valid
 

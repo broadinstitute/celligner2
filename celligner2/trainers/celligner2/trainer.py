@@ -60,7 +60,7 @@ class Trainer:
        n_workers: Integer
             Passes the 'n_workers' parameter for the torch.utils.data.DataLoader class.
        seed: Integer
-            Define a specific random seed to get reproducable results.
+            Define a specific random seed to get reproduceable results.
     """
     def __init__(self,
                  model,
@@ -70,10 +70,11 @@ class Trainer:
                  cell_type_key: str = None,
                  batch_size: int = 128,
                  alpha_epoch_anneal: int = None,
-                 alpha_kl: float = 1.,
+                 alpha_kl: float = 0.001,
                  use_early_stopping: bool = True,
                  reload_best: bool = True,
                  early_stopping_kwargs: dict = None,
+                 min_weight: float = 0.2,
                  **kwargs):
 
         self.adata = adata
@@ -112,6 +113,8 @@ class Trainer:
             self.model.cuda()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        self.min_weight = min_weight
+
         self.epoch = -1
         self.n_epochs = None
         self.iter = 0
@@ -144,6 +147,7 @@ class Trainer:
             cell_type_encoder=self.model.cell_type_encoder,
             predictor_keys=self.predictor_keys,
             predictor_encoder=self.model.predictor_encoder,
+            min_weight = self.min_weight,
         )
 
     def initialize_loaders(self):

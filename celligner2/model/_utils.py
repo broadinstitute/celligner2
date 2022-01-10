@@ -16,7 +16,6 @@ def one_hot_encoder(idx, n_cls):
     Returns:
         one hot encoded tensor
     """
-    assert torch.max(idx).item() < n_cls
     if idx.dim() == 1:
         idx = idx.unsqueeze(1)
     onehot = torch.zeros(idx.size(0), n_cls)

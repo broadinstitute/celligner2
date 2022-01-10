@@ -12,15 +12,21 @@ DONE
 
 ### semi supervision like mfMAP (need good annotations)
 
-- make MMD work
+
 - there might be a batch issue with the MMD regularization.. on only 1400 CCLE samples..
+
+X make MMD work
 - sample specific information (will need ashir's new annotations, also annotations for each dataset used)
+
+- debug classification
+- manage ignore index
+- manage weighting of low present annotations vs highly present ones (positive presence of some type)
 - label smoothing on semi-supervision (weak supervion)
-- add Lr scheduler to TRVAE (ReduceLROnPlateau)
+X add Lr scheduler to TRVAE (ReduceLROnPlateau)
 
 ### do data augmentation thing: (see list in other document)
 
-- Use replicates when available.
+X Use replicates when available.
 - Up to some random noise, based on how high is the expression (randomly add)
 - mix cell lines and normals to create fake impurity to correct
   - do: ccle_line + impurity * gtex_tissue

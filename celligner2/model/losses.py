@@ -282,7 +282,15 @@ def classifier_sb_loss(pred_y, y,tmpidx,beta=0.5):
     #else:
         #return beta*F.cross_entropy(pred_y[tmpidx], y[tmpidx], reduction='sum')
 
-def classifier_hb_loss(pred_y, y,tmpidx=None,beta=0.5):
-    bootstrap=- (1.0 - beta) * torch.sum(F.softmax(pred_y, dim=1) * F.log_softmax(pred_y, dim=1), dim=1)
-    ce = F.cross_entropy(pred_y[tmpidx], y[tmpidx], reduction='sum') if tmpidx is not None else F.cross_entropy(pred_y, y, reduction='sum')
+def classifier_hb_loss(pred_y, y, ignore_index=-1, beta=0.7, weight=None):
+    if weight is None:
+        weight=torch.ones(y.shape).to(device=pred_y.device)
+    else:
+        weight=torch.tensor(weight).to(device=pred_y.device)
+    
+    weight[y==ignore_index]=0
+    y[y==ignore_index]=0
+    bootstrap = -(1.0 - beta) * torch.sum(F.softmax(pred_y, dim=1) * F.log_softmax(pred_y, dim=1), dim=1)
+    ce = F.binary_cross_entropy_with_logits(pred_y, y.float(), reduction='sum', weight=weight)
+    #import pdb; pdb.set_trace()
     return beta*ce+torch.sum(bootstrap)

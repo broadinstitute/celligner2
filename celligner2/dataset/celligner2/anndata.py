@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 from scipy import sparse
 
 from .data_handling import remove_sparsity
-from ._utils import label_encoder
+from ._utils import label_encoder, label_encoder_2D
 
 
 class AnnotatedDataset(Dataset):
@@ -34,10 +34,11 @@ class AnnotatedDataset(Dataset):
                  cell_type_encoder=None,
                  predictor_encoder=None,
                  predictor_keys=None,
+                 minweight=0.0,
                  ):
 
         self.X_norm = None
-
+        self.minweight = minweight
         self.condition_keys = condition_keys
         self.condition_encoder = condition_encoder
         self.cell_type_key = cell_type_key
@@ -54,57 +55,52 @@ class AnnotatedDataset(Dataset):
 
         # Encode condition strings to integer
         if self.condition_keys is not None:
-            conditions = list()
-            for key in self.condition_keys:
-                condition = label_encoder(
-                    adata,
-                    encoder=self.condition_encoder,
-                    label_key=key,
-                )
-                conditions.append(condition)
-            conditions = np.stack(conditions)
+            condition_sets = {key: set(adata.obs[key]) for key in self.condition_keys}
+            conditions = label_encoder_2D(
+                adata,
+                encoder=self.condition_encoder,
+                label_sets=condition_sets,
+            )
             self.conditions = torch.tensor(conditions, dtype=torch.long)
 
         # Encode predictors strings to integer
         if self.predictor_keys is not None:
-            predictors = list()
-            for key in self.predictor_keys:
-                predictor = label_encoder(
-                    adata,
-                    encoder=self.predictor_encoder,
-                    label_key=key,
-                )
-                predictors.append(predictor)
-            predictors = np.stack(predictors)
+            predictor_set = {key: set(adata.obs[key]) for key in self.predictor_keys}
+            predictors = label_encoder_2D(
+                adata,
+                encoder=self.predictor_encoder,
+                label_sets=predictor_set,
+            )
             self.predictors = torch.tensor(predictors, dtype=torch.long)
+            #import pdb; pdb.set_trace()
+            #predictors[predictors == -1] = 0
+            #weights = predictors.sum(0)
+            #self.weights =  (( 1 + minweight ) - weights / weights.max()) / (1 + minweight)
 
         # Encode cell type strings to integer
         if self.cell_type_key is not None:
-            cell_types = list()
             level_cell_types = label_encoder(
                 adata,
                 encoder=self.cell_type_encoder,
                 label_key=cell_type_key,
             )
-            cell_types.append(level_cell_types)
-            cell_types = np.stack(cell_types)
-            self.cell_types = torch.tensor(cell_types, dtype=torch.long)
+            self.cell_types = torch.tensor(level_cell_types, dtype=torch.long)
 
     def __getitem__(self, index):
         outputs = dict()
-
         outputs["x"] = self.data[index, :]
         outputs["labeled"] = self.labeled_vector[index]
         outputs["sizefactor"] = self.size_factors[index]
 
         if self.condition_keys:
-            outputs["batch"] = self.conditions[index,:]
+            outputs["batch"] = self.conditions[index]
 
         if self.cell_type_key:
             outputs["celltypes"] = self.cell_types[index]
 
         if self.predictor_keys:
-            outputs["predictors"] = self.predictors[index,:]
+            outputs["classes"] = self.predictors[index]
+            #outputs['weight'] = self.weights
 
         return outputs
 
@@ -140,18 +136,28 @@ class AnnotatedDataset(Dataset):
 
     @property
     def stratifier_weights(self):
-        maincond = self.conditions[:, 0]
-        conditions = maincond.detach().cpu().numpy()
-        condition_coeff = 1 / len(conditions)
+        strat_weights = np.zeros(len(self.conditions)).astype(float)
+        # for conditions
+        conditions = self.conditions.detach().cpu().numpy().T
         weights_per_condition = list()
-        for i in range(len(maincond)):
-            samples_per_condition = np.count_nonzero(conditions == i)
+        for i in range(conditions.shape[0]):
+            samples_per_condition = np.count_nonzero(conditions[i])
             if samples_per_condition == 0:
                 weights_per_condition.append(0)
             else:
-                weights_per_condition.append((1 / samples_per_condition) * condition_coeff)
-        strat_weights = np.copy(conditions)
-        for i in range(len(conditions)):
-            strat_weights = np.where(strat_weights == i, weights_per_condition[i], strat_weights)
-
-        return strat_weights.astype(float)
+                weights_per_condition.append(1 / (samples_per_condition * conditions.shape[0]))
+        for i in range(conditions.shape[0]):
+            strat_weights += np.where(conditions[i], weights_per_condition[i], 0)
+        # for cell types
+        predictions = self.predictors.detach().cpu().numpy().T
+        weights_per_prediction = list()
+        for i in range(predictions.shape[0]):
+            samples_per_prediction = np.count_nonzero(predictions[i])
+            if samples_per_prediction == 0:
+                weights_per_prediction.append(0)
+            else:
+                weights_per_prediction.append(1 / (samples_per_prediction * predictions.shape[0]))
+        for i in range(predictions.shape[0]):
+            strat_weights += np.where(predictions[i], weights_per_prediction[i], 0)
+        #import pdb; pdb.set_trace()
+        return strat_weights + self.minweight

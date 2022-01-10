@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-from ._utils import one_hot_encoder
 
 
 class CondLayers(nn.Module):
@@ -86,7 +85,6 @@ class Encoder(nn.Module):
 
     def forward(self, x, batch=None):
         if batch is not None:
-            batch = one_hot_encoder(batch, n_cls=self.n_classes)
             x = torch.cat((x, batch), dim=-1)
         if self.FC is not None:
             x = self.FC(x)
@@ -179,7 +177,6 @@ class Decoder(nn.Module):
     def forward(self, z, batch=None):
         # Add Condition Labels to Decoder Input
         if batch is not None:
-            batch = one_hot_encoder(batch, n_cls=self.n_classes)
             z_cat = torch.cat((z, batch), dim=-1)
             dec_latent = self.FirstL(z_cat)
         else:
@@ -234,29 +231,29 @@ class Classifier(nn.Module):
             self.FirstL.add_module(name="D0", module=nn.Dropout(p=dr_rate))
 
         # Create all Classifier hidden layers
-        if len(layer_sizes) > 2:
+        if len(layer_sizes) > 3:
             self.HiddenL = nn.Sequential() 
-            for i, (in_size, out_size) in enumerate(zip(layer_sizes[1:-1], layer_sizes[2:])):
-                if i+3 < len(layer_sizes):
-                    print("\tHidden Layer", i+1, "in/out:", in_size, out_size)
-                    self.HiddenL.add_module(name="L{:d}".format(i+1), module=nn.Linear(in_size, out_size, bias=False))
-                    if use_bn:
-                        self.HiddenL.add_module("N{:d}".format(i+1), module=nn.BatchNorm1d(out_size, affine=True))
-                    elif use_ln:
-                        self.HiddenL.add_module("N{:d}".format(i + 1), module=nn.LayerNorm(out_size, elementwise_affine=False))
-                    self.HiddenL.add_module(name="A{:d}".format(i+1), module=nn.ReLU())
-                    if self.use_dr:
-                        self.HiddenL.add_module(name="D{:d}".format(i+1), module=nn.Dropout(p=dr_rate))
+            for i, (in_size, out_size) in enumerate(zip(layer_sizes[1:-2], layer_sizes[2:-1])):
+                print("\tHidden Layer", i+1, "in/out:", in_size, out_size)
+                self.HiddenL.add_module(name="L{:d}".format(i+1), module=nn.Linear(in_size, out_size, bias=False))
+                # https://stats.stackexchange.com/questions/361700/lack-of-batch-normalization-before-last-fully-connected-layer
+                if use_bn and i+3 < len(layer_sizes):
+                    self.HiddenL.add_module("N{:d}".format(i+1), module=nn.BatchNorm1d(out_size, affine=True))
+                elif use_ln:
+                    self.HiddenL.add_module("N{:d}".format(i + 1), module=nn.LayerNorm(out_size, elementwise_affine=False))
+                self.HiddenL.add_module(name="A{:d}".format(i+1), module=nn.ReLU())
+                if self.use_dr:
+                    self.HiddenL.add_module(name="D{:d}".format(i+1), module=nn.Dropout(p=dr_rate))
         else:
             self.HiddenL = None
 
         # Create Output Layers
         print("\tOutput Layer in/out: ", layer_sizes[-2], layer_sizes[-1], "\n")
-        self.classifier = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.Softmax(dim=-1))
+        #https://glassboxmedicine.com/2019/05/26/classification-sigmoid-vs-softmax/
+        self.classifier = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]))
 
-    def forward(self, z, classes):
+    def forward(self, z, batch=None):
         # predicts class probabilities from latent space
-        classes = one_hot_encoder(classes, n_cls=self.n_classes)
         zL = self.FirstL(z)
         if self.HiddenL is not None:
             x = self.HiddenL(zL)

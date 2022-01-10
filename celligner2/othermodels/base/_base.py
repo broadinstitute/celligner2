@@ -263,13 +263,15 @@ class CVAELatentsMixin:
                 Returns array containing latent space encoding of 'x'.
         """
         device = next(self.model.parameters()).device
+        wasnull = False
         if x is None and c is None:
+            wasnull=True
             x = self.adata.X
             if self.conditions_ is not None:
-                c = self.adata.obs[self.condition_key_]
+                c = self.adata.obs[self.condition_key_ if hasattr(self, 'condition_key_') else self.condition_keys_].values
 
         if c is not None:
-            c = np.asarray(c)
+            c = np.asarray(c).flatten()
             if not set(c).issubset(self.conditions_):
                 raise ValueError("Incorrect conditions")
             labels = np.zeros(c.shape[0])
@@ -286,7 +288,7 @@ class CVAELatentsMixin:
             latent = self.model.get_latent(x[batch,:].to(device), c[batch], mean)
             latents += [latent.cpu().detach()]
 
-        return np.array(torch.cat(latents))
+        return AnnData(np.array(torch.cat(latents)), self.model.adata.obs) if wasnull else np.array(torch.cat(latents))
 
     def get_y(
         self,

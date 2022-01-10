@@ -51,7 +51,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                  conditions: list,
                  predictors: list,
                  hidden_layer_sizes: list = [256, 64],
-                 classifier_hidden_layer_sizes: list = [64, 32],
+                 classifier_hidden_layer_sizes: list = [32],
                  latent_dim: int = 10,
                  dr_rate: float = 0.05,
                  use_mmd: bool = False,
@@ -60,6 +60,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                  mmd_boundary: Optional[int] = None,
                  recon_loss: Optional[str] = 'nb',
                  beta: float = 1,
+                 betaclass: float =0.8,
                  use_bn: bool = False,
                  use_ln: bool = True,
                  ):
@@ -79,12 +80,14 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         self.predictors = predictors
         self.condition_encoder = {k: v for k, v in zip(conditions, range(len(conditions)))}
         self.predictor_encoder = {k: v for k, v in zip(predictors, range(len(predictors)))}
+        
         self.cell_type_encoder = None
         self.recon_loss = recon_loss
         self.mmd_boundary = mmd_boundary
         self.use_mmd = use_mmd
         self.freeze = False
         self.beta = beta
+        self.betaclass = betaclass
         self.use_bn = use_bn
         self.use_ln = use_ln
         self.mmd_on = mmd_on
@@ -131,17 +134,16 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                                self.dr_rate,
                                self.n_conditions)
 
-    def forward(self, x=None, batch=None, sizefactor=None, classes=None,):
+    def forward(self, x=None, batch=None, sizefactor=None, classes=None, labeled=None, weight=None, celltypes=None):
         x_log = torch.log(1 + x)
         if self.recon_loss == 'mse':
             x_log = x
 
         z1_mean, z1_log_var = self.encoder(x_log, batch)
-        #import pdb; pdb.set_trace()
         #print(z1_mean.mean(), z1_log_var.mean())
         z1 = self.sampling(z1_mean, z1_log_var)
         outputs = self.decoder(z1, batch)
-        pred_classes = self.classifier(z1, classes)
+        pred_classes = self.classifier(z1_mean, batch)
 
         if self.recon_loss == "mse":
             recon_x, y1 = outputs
@@ -162,7 +164,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             recon_loss = -nb(x=x, mu=dec_mean, theta=dispersion).sum(dim=-1).mean()
 
         z1_var = torch.exp(z1_log_var) + 1e-4
-        if self.use_own_KL:
+        if self.use_own_kl:
             kl_div = -0.5 * torch.sum(1 + z1_log_var - z1_mean ** 2 - z1_var)
         else:
             kl_div = kl_divergence(
@@ -173,11 +175,39 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         mmd_loss = torch.tensor(0.0, device=z1.device)
 
         if self.use_mmd:
+            batch = torch.argmax(batch, dim=1)
             if self.mmd_on == "z":
                 mmd_loss = mmd(z1, batch, self.n_conditions, self.beta, self.mmd_boundary)
             else:
                 mmd_loss = mmd(y1, batch, self.n_conditions, self.beta, self.mmd_boundary)
 
-        class_ce_loss = classifier_hb_loss(pred_classes, classes, )
-
+        class_ce_loss = classifier_hb_loss(pred_classes, classes, beta=self.betaclass, weight=weight)
         return recon_loss, kl_div, mmd_loss, class_ce_loss
+
+
+    def get_latent(self, x, c=None, mean=False, add_classpred=False):
+        """Map `x` in to the latent space. This function will feed data in encoder  and return  z for each sample in
+           data.
+
+           Parameters
+           ----------
+           x:  torch.Tensor
+                Torch Tensor to be mapped to latent space. `x` has to be in shape [n_obs, input_dim].
+           c: torch.Tensor
+                Torch Tensor of condition labels for each sample.
+           mean: boolean
+
+           Returns
+           -------
+           Returns Torch Tensor containing latent space encoding of 'x'.
+        """
+        x_ = torch.log(1 + x)
+        if self.recon_loss == 'mse':
+            x_ = x
+        z_mean, z_log_var = self.encoder(x_, c)
+        latent = self.sampling(z_mean, z_log_var)
+        if add_classpred:
+            classes = self.classifier(z_mean)
+        if mean:
+            return z_mean if not add_classpred else (z_mean, classes)
+        return latent if not add_classpred else (latent, classes)
