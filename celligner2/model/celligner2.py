@@ -211,3 +211,14 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         if mean:
             return z_mean if not add_classpred else (z_mean, classes)
         return latent if not add_classpred else (latent, classes)
+
+    def reconstructLatent(self, latent, c=None):
+        """reconstructLatent recontruct the expression matrix from latent space.
+
+        Args:
+            latent (np.array): latent space encoding of data
+
+        Returns:
+            torch.Tensor: reconstructed data
+        """
+        return self.decoder(latent, c)

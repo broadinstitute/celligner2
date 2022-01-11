@@ -1,5 +1,6 @@
 import inspect
 import os
+import anndata
 
 from numpy.lib.function_base import _percentile_dispatcher
 import torch
@@ -232,14 +233,13 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         if adata is None:
             wasnull=True
             adata = self.adata
-        import pdb; pdb.set_trace()
         condition_sets = {key: set(adata.obs[key]) for key in self.condition_keys_}
         conditions = label_encoder_2D(
             adata,
             encoder=self.model.condition_encoder,
             label_sets=condition_sets,
         )
-        
+
         c = torch.tensor(conditions, dtype=torch.long)
         x = torch.tensor(adata.X)
 
@@ -268,3 +268,38 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         else:
             classes = pd.DataFrame(index=self.adata.obs.index)
         return AnnData(np.array(torch.cat(latents)), obs=pd.concat([self.adata.obs, classes], axis=1)) if wasnull else np.array(torch.cat(latents))
+
+    def reconstruct(
+        self,
+        latent: np.ndarray,
+        c: np.ndarray,
+    ):
+        """Map `x` in to the latent space. This function will feed data in encoder  and return  z for each sample in
+           data.
+
+           Parameters
+           ----------
+           adata: AnnData
+
+           Returns
+           -------
+                Returns array containing latent space encoding of 'x'.
+        """
+        device = next(self.model.parameters()).device
+        condition_sets = {key: set(c[key]) for key in self.condition_keys_}
+        conditions = label_encoder_2D(
+            adata=AnnData(latent, c),
+            encoder=self.model.condition_encoder,
+            label_sets=condition_sets,
+        )
+
+        c = torch.tensor(conditions, dtype=torch.long)
+        latent = torch.tensor(latent)
+
+        expressions = []
+        indices = torch.arange(latent.size(0))
+        subsampled_indices = indices.split(512)
+        for batch in subsampled_indices:
+            expression = self.model.reconstructLatent(latent[batch,:].to(device), c[batch])
+            expressions += [expression.cpu().detach()]
+        return pd.DataFrame(np.array(torch.cat(expressions)), index=self.adata.obs.index, columns=self.adata.var.index)

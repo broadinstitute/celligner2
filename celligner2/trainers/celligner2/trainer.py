@@ -94,7 +94,7 @@ class Trainer:
         early_stopping_kwargs = (early_stopping_kwargs if early_stopping_kwargs else dict())
 
         self.n_samples = kwargs.pop("n_samples", None)
-        self.train_frac = kwargs.pop("train_frac", 0.9)
+        self.train_frac = kwargs.pop("train_frac", 0.7)
         self.use_stratified_sampling = kwargs.pop("use_stratified_sampling", True)
 
         self.weight_decay = kwargs.pop("weight_decay", 0.04)

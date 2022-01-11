@@ -1,9 +1,12 @@
 import numpy as np
 import scanpy as sc
 import torch
-import anndata
+import os
 import matplotlib.pyplot as plt
 from typing import Union
+import seaborn as sns
+import pandas as pd
+from sklearn.metrics import confusion_matrix
 
 from celligner2.dataset.celligner2._utils import label_encoder
 from celligner2.metrics.metrics import entropy_batch_mixing, knn_purity, asw, nmi
@@ -28,7 +31,7 @@ class CELLIGNER2_EVAL:
             trainer = model.trainer
             self.adata_latent = model.get_latent(add_classpred=True)
         else:
-            self.adata_latent = model.get_latent(add_classpred=True)
+            self.adata_latent = model.model.get_latent(add_classpred=True)
 
         self.model = model
         self.trainer = trainer
@@ -57,6 +60,9 @@ class CELLIGNER2_EVAL:
         sc.tl.umap(self.adata_latent, **umap_kwargs)
         sc.pl.umap(self.adata_latent, show=show, **kwargs)
         if save:
+            # create folder if not exists
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
             plt.savefig(f'{dir_path}_batch.png', bbox_inches='tight')
 
     def plot_classification(self, classes=['tissue_type', 'disease_type', 'sex', 'age']):
@@ -79,8 +85,10 @@ class CELLIGNER2_EVAL:
             )])
             total = len(self.adata_latent)
             cat = set(self.adata_latent.obs[val+'_pred'])
+            score = f1_score(self.adata_latent.obs[val+'_pred'], self.adata_latent.obs[val], average='macro')
             print('all predicted categories: ', cat)
-            print('percent of correct predictions: ', worked/total)
+            print('accuracy: ', worked/total)
+            print("F1 Score: %0.2f" % score)
             print('\n')
         
 
@@ -102,6 +110,9 @@ class CELLIGNER2_EVAL:
         plt.ylim(min(elbo_test) - 50, max(elbo_test) + 50)
         plt.legend()
         if save:
+            # create folder if not exists
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
             plt.savefig(f'{dir_path}.png', bbox_inches='tight')
         if show:
             plt.show()
@@ -146,3 +157,45 @@ class CELLIGNER2_EVAL:
         score = ebm + knn
         print("Latent-Space Score EBM+KNN, EBM, KNN: %0.2f, %0.2f, %0.2f" % (score, ebm, knn))
         return score
+
+    def getconfusionMatrix(self, on="tissue_type", only=None, batch_key="cell_type", doplot=True, save=False, dir_path="temp/"):
+        """getconfusionMatrix returns a confusion matrix for the given label_key.
+
+        Args:
+            on (str, optional): The label_key to use for the confusion matrix. Defaults to "tissue_type".
+            only ([type], optional): Only show the given classes. Defaults to None.
+            batch_key (str, optional): The label_key to use for the batch. Defaults to "cell_type".
+            doplot (bool, optional): If True, plot the confusion matrix. Defaults to True.
+            save (bool, optional): If True, save the confusion matrix. Defaults to False.
+            dir_path (str, optional): The path to save the confusion matrix. Defaults to "temp/".
+
+        Returns:
+            pd.DataFrame: The confusion matrix.
+        """
+        if only is not None:
+            loc = self.adata_latent.obs[batch_key] == only
+            adata = self.adata_latent[loc]
+        else:
+            adata = self.adata_latent
+        lab = list(set(adata.obs[on])-set('U'))
+        confusion = confusion_matrix(adata.obs[on], adata.obs[on+"_pred"], labels=lab, normalize='true')
+        confusion = pd.DataFrame(confusion, index=lab, columns=lab)
+        if doplot:
+            plt.figure(figsize=(10, 10), dpi=300)
+            sns.heatmap(confusion, cmap="Blues",) #annot_kws={"size": 10})
+            plt.title("Confusion Matrix")
+            plt.ylabel("True")
+            plt.xlabel("Predicted")
+            if save:
+                # create dir if not exists
+                if not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+                plt.savefig(f'{dir_path}_confusion.png', bbox_inches='tight')
+            plt.show()
+
+        return confusion
+
+
+    def reconstruct(self):
+        
+
