@@ -16,41 +16,43 @@ from celligner2.trainers.celligner2.semisupervised import Celligner2Trainer
 from celligner2.othermodels.base._base import BaseMixin, SurgeryMixin, CVAELatentsMixin
 from celligner2.dataset.celligner2._utils import label_encoder_2D
 
+
 class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     """Model for scArches class. This class contains the implementation of Conditional Variational Auto-encoder.
 
-       Parameters
-       ----------
-       adata: : `~anndata.AnnData`
-            Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
-            for 'mse' loss.
-       condition_keys: String
-            column name of conditions in `adata.obs` data frame.
-       conditions: List
-            List of Condition names that the used data will contain to get the right encoding when used after reloading.
-       hidden_layer_sizes: List
-            A list of hidden layer sizes for encoder network. Decoder network will be the reversed order.
-       latent_dim: Integer
-            Bottleneck layer (z)  size.
-       dr_rate: Float
-            Dropput rate applied to all layers, if `dr_rate`==0 no dropout will be applied.
-       use_mmd: Boolean
-            If 'True' an additional MMD loss will be calculated on the latent dim. 'z' or the first decoder layer 'y'.
-       mmd_on: String
-            Choose on which layer MMD loss will be calculated on if 'use_mmd=True': 'z' for latent dim or 'y' for first
-            decoder layer.
-       mmd_boundary: Integer or None
-            Choose on how many conditions the MMD loss should be calculated on. If 'None' MMD will be calculated on all
-            conditions.
-       recon_loss: String
-            Definition of Reconstruction-Loss-Method, 'mse', 'nb' or 'zinb'.
-       beta: Float
-            Scaling Factor for MMD loss
-       use_bn: Boolean
-            If `True` batch normalization will be applied to layers.
-       use_ln: Boolean
-            If `True` layer normalization will be applied to layers.
+    Parameters
+    ----------
+    adata: : `~anndata.AnnData`
+         Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
+         for 'mse' loss.
+    condition_keys: String
+         column name of conditions in `adata.obs` data frame.
+    conditions: List
+         List of Condition names that the used data will contain to get the right encoding when used after reloading.
+    hidden_layer_sizes: List
+         A list of hidden layer sizes for encoder network. Decoder network will be the reversed order.
+    latent_dim: Integer
+         Bottleneck layer (z)  size.
+    dr_rate: Float
+         Dropput rate applied to all layers, if `dr_rate`==0 no dropout will be applied.
+    use_mmd: Boolean
+         If 'True' an additional MMD loss will be calculated on the latent dim. 'z' or the first decoder layer 'y'.
+    mmd_on: String
+         Choose on which layer MMD loss will be calculated on if 'use_mmd=True': 'z' for latent dim or 'y' for first
+         decoder layer.
+    mmd_boundary: Integer or None
+         Choose on how many conditions the MMD loss should be calculated on. If 'None' MMD will be calculated on all
+         conditions.
+    recon_loss: String
+         Definition of Reconstruction-Loss-Method, 'mse', 'nb' or 'zinb'.
+    beta: Float
+         Scaling Factor for MMD loss
+    use_bn: Boolean
+         If `True` batch normalization will be applied to layers.
+    use_ln: Boolean
+         If `True` layer normalization will be applied to layers.
     """
+
     def __init__(
         self,
         adata: AnnData,
@@ -61,9 +63,9 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         latent_dim: int = 10,
         dr_rate: float = 0.05,
         use_mmd: bool = True,
-        mmd_on: str = 'z',
+        mmd_on: str = "z",
         mmd_boundary: Optional[int] = None,
-        recon_loss: Optional[str] = 'nb',
+        recon_loss: Optional[str] = "nb",
         beta: float = 1,
         betaclass: float = 0.8,
         use_bn: bool = False,
@@ -71,7 +73,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         predictors: Optional[list] = None,
         predictor_keys: Optional[list] = None,
         use_own_kl: bool = False,
-        miss: str = 'U',
+        miss: str = "U",
     ):
         self.adata = adata
 
@@ -80,25 +82,47 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
 
         if conditions is None:
             if condition_keys is not None:
+                myset = set()
+                for condition_key in condition_keys:
+                    group = set(adata.obs[condition_key]) - set(miss)
+                    overlap = group & myset
+                    if len(overlap) > 0:
+                        adata.obs.replace(
+                            {
+                                condition_key: {
+                                    val: condition_key + "_" + val for val in group
+                                }
+                            },
+                            inplace=True,
+                        )
+                    myset = myset | set(adata.obs[condition_key])
                 self.conditions_ = list(
-                    set(adata.obs[condition_keys].values.flatten())-set(miss))
-                if len(self.conditions_) != sum(
-                    [len(set(adata.obs[condition_key])-set(miss)) for condition_key in condition_keys]):
-                    raise ValueError('conditions need to be unique even amongst \
-                        different columns')
+                    set(adata.obs[condition_keys].values.flatten()) - set(miss)
+                )
             else:
                 self.conditions_ = []
         else:
             self.conditions_ = conditions
-        
+
         if predictors is None:
             if predictor_keys is not None:
+                myset = set()
+                for predictor_key in predictor_keys:
+                    group = set(adata.obs[predictor_key]) - set(miss)
+                    overlap = group & myset
+                    if len(overlap) > 0:
+                        adata.obs.replace(
+                            {
+                                predictor_key: {
+                                    val: predictor_key + "_" + val for val in group
+                                }
+                            },
+                            inplace=True,
+                        )
+                    myset = myset | set(adata.obs[predictor_key])
                 self.predictors_ = list(
-                    set(adata.obs[predictor_keys].values.flatten()) - set(miss))
-                if len(self.predictors_) != sum(
-                    [len(set(adata.obs[predictor_key]) - set(miss)) for predictor_key in predictor_keys]):
-                    raise ValueError('Predictors need to be unique even amongst \
-                        different columns')
+                    set(adata.obs[predictor_keys].values.flatten()) - set(miss)
+                )
             else:
                 self.predictors_ = []
 
@@ -145,67 +169,60 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.is_trained_ = False
         self.trainer = None
 
-    def train(
-        self,
-        n_epochs: int = 400,
-        lr: float = 1e-3,
-        eps: float = 0.01,
-        **kwargs
-    ):
+    def train(self, n_epochs: int = 400, lr: float = 1e-3, eps: float = 0.01, **kwargs):
         """Train the model.
 
-           Parameters
-           ----------
-           n_epochs
-                Number of epochs for training the model.
-           lr
-                Learning rate for training the model.
-           eps
-                torch.optim.Adam eps parameter
-           kwargs
-                kwargs for the TrVAE trainer.
+        Parameters
+        ----------
+        n_epochs
+             Number of epochs for training the model.
+        lr
+             Learning rate for training the model.
+        eps
+             torch.optim.Adam eps parameter
+        kwargs
+             kwargs for the TrVAE trainer.
         """
         self.trainer = Celligner2Trainer(
             self.model,
             self.adata,
             condition_keys=self.condition_keys_,
             predictor_keys=self.predictor_keys_,
-            **kwargs)
+            **kwargs
+        )
         self.trainer.train(n_epochs, lr, eps)
         self.is_trained_ = True
 
     @classmethod
     def _get_init_params_from_dict(cls, dct):
         init_params = {
-            'condition_keys': dct['condition_keys_'],
-            'conditions': dct['conditions_'],
-            'hidden_layer_sizes': dct['hidden_layer_sizes_'],
-            'latent_dim': dct['latent_dim_'],
-            'dr_rate': dct['dr_rate_'],
-            'use_mmd': dct['use_mmd_'],
-            'mmd_on': dct['mmd_on_'],
-            'mmd_boundary': dct['mmd_boundary_'],
-            'recon_loss': dct['recon_loss_'],
-            'beta': dct['beta_'],
-            'betaclass': dct['betaclass_'],
-            'use_bn': dct['use_bn_'],
-            'use_ln': dct['use_ln_'],
-            'use_own_kl': dct['use_own_kl_'],
-            'predictors': dct['predictors_'],
-            'predictor_keys': dct['predictor_keys_'],
-            'miss': dct['miss_'],
+            "condition_keys": dct["condition_keys_"],
+            "conditions": dct["conditions_"],
+            "hidden_layer_sizes": dct["hidden_layer_sizes_"],
+            "classifier_hidden_layer_sizes": dct["classifier_hidden_layer_sizes_"],
+            "latent_dim": dct["latent_dim_"],
+            "dr_rate": dct["dr_rate_"],
+            "use_mmd": dct["use_mmd_"],
+            "mmd_on": dct["mmd_on_"],
+            "mmd_boundary": dct["mmd_boundary_"],
+            "recon_loss": dct["recon_loss_"],
+            "beta": dct["beta_"],
+            "betaclass": dct["betaclass_"],
+            "use_bn": dct["use_bn_"],
+            "use_ln": dct["use_ln_"],
+            "use_own_kl": dct["use_own_kl_"],
+            "predictors": dct["predictors_"],
+            "predictor_keys": dct["predictor_keys_"],
+            "miss": dct["miss_"],
+            "input_dim": dct["input_dim_"],
         }
 
         return init_params
 
     @classmethod
     def _validate_adata(cls, adata, dct):
-        if adata.n_vars != dct['input_dim_']:
+        if adata.n_vars != dct["input_dim_"]:
             raise ValueError("Incorrect var dimension")
-
-        adata_conditions = adata.obs[dct['condition_keys_']].unique().tolist()
-        if not set(adata_conditions).issubset(dct['conditions_']):
-            raise ValueError("Incorrect conditions")
 
     def get_latent(
         self,
@@ -214,24 +231,24 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         add_classpred: bool = False,
     ):
         """Map `x` in to the latent space. This function will feed data in encoder  and return  z for each sample in
-           data.
-           Parameters
-           ----------
-           x
-                Numpy nd-array to be mapped to latent space. `x` has to be in shape [n_obs, input_dim].
-                If None, then `self.adata.X` is used.
-           c
-                `numpy nd-array` of original (unencoded) desired labels for each sample.
-           mean
-                return mean instead of random sample from the latent space
-           Returns
-           -------
-                Returns array containing latent space encoding of 'x'.
+        data.
+        Parameters
+        ----------
+        x
+             Numpy nd-array to be mapped to latent space. `x` has to be in shape [n_obs, input_dim].
+             If None, then `self.adata.X` is used.
+        c
+             `numpy nd-array` of original (unencoded) desired labels for each sample.
+        mean
+             return mean instead of random sample from the latent space
+        Returns
+        -------
+             Returns array containing latent space encoding of 'x'.
         """
         device = next(self.model.parameters()).device
         wasnull = False
         if adata is None:
-            wasnull=True
+            wasnull = True
             adata = self.adata
         condition_sets = {key: set(adata.obs[key]) for key in self.condition_keys_}
         conditions = label_encoder_2D(
@@ -248,26 +265,52 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         indices = torch.arange(x.size(0))
         subsampled_indices = indices.split(512)
         for batch in subsampled_indices:
-            latent, classe = self.model.get_latent(x[batch,:].to(device), c[batch], mean, add_classpred)
+
+            latent, classe = self.model.get_latent(
+                x[batch, :].to(device), c[batch], mean, add_classpred
+            )
             latents += [latent.cpu().detach()]
             if add_classpred:
                 classes += [classe.cpu().detach()]
 
         if add_classpred:
-            #import pdb; pdb.set_trace()
-            predictor_set = {key: set(self.adata.obs[key])-set(self.miss_) for key in self.predictor_keys_}
-            predictor_decoder = {v:k for k,v in self.model.predictor_encoder.items()}
+            # import pdb; pdb.set_trace()
+            predictor_set = {
+                key: set(self.adata.obs[key]) - set(self.miss_)
+                for key in self.predictor_keys_
+            }
+            predictor_decoder = {v: k for k, v in self.model.predictor_encoder.items()}
             classes = np.array(torch.cat(classes))
             nclasses = []
             for _, v in predictor_set.items():
                 loc = np.array([self.model.predictor_encoder[vv] for vv in v])
-                nclasses.append([predictor_decoder[name] for name in loc[np.argmax(
-                    classes[:, loc],
-                axis=1)]])
-            classes = pd.DataFrame(data=np.array(nclasses).T, columns=[i+'_pred' for i in predictor_set.keys()], index=self.adata.obs.index)
+                nclasses.append(
+                    [
+                        predictor_decoder[name]
+                        for name in loc[np.argmax(classes[:, loc], axis=1)]
+                    ]
+                )
+            classes = pd.DataFrame(
+                data=np.array(nclasses).T,
+                columns=[i + "_pred" for i in predictor_set.keys()],
+                index=self.adata.obs.index,
+            )
         else:
             classes = pd.DataFrame(index=self.adata.obs.index)
-        return AnnData(np.array(torch.cat(latents)), obs=pd.concat([self.adata.obs, classes], axis=1)) if wasnull else np.array(torch.cat(latents))
+        return (
+            AnnData(
+                np.array(torch.cat(latents)),
+                obs=pd.concat(
+                    [
+                        self.adata.obs[self.condition_keys_ + self.predictor_keys_],
+                        classes,
+                    ],
+                    axis=1,
+                ),
+            )
+            if wasnull
+            else np.array(torch.cat(latents))
+        )
 
     def reconstruct(
         self,
@@ -275,15 +318,15 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         c: np.ndarray,
     ):
         """Map `x` in to the latent space. This function will feed data in encoder  and return  z for each sample in
-           data.
+        data.
 
-           Parameters
-           ----------
-           adata: AnnData
+        Parameters
+        ----------
+        adata: AnnData
 
-           Returns
-           -------
-                Returns array containing latent space encoding of 'x'.
+        Returns
+        -------
+             Returns array containing latent space encoding of 'x'.
         """
         device = next(self.model.parameters()).device
         condition_sets = {key: set(c[key]) for key in self.condition_keys_}
@@ -300,6 +343,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         indices = torch.arange(latent.size(0))
         subsampled_indices = indices.split(512)
         for batch in subsampled_indices:
-            expression = self.model.reconstructLatent(latent[batch,:].to(device), c[batch])
+            expression, _ = self.model.reconstructLatent(
+                latent[batch, :].to(device), c[batch]
+            )
             expressions += [expression.cpu().detach()]
-        return pd.DataFrame(np.array(torch.cat(expressions)), index=self.adata.obs.index, columns=self.adata.var.index)
+        return pd.DataFrame(
+            np.array(torch.cat(expressions)), columns=self.adata.var.index
+        )
