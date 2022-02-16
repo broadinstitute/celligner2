@@ -84,6 +84,14 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             if condition_keys is not None:
                 myset = set()
                 for condition_key in condition_keys:
+                    if len(set(adata.obs[condition_key]) - set(miss)) > 0:
+                        raise ValueError(
+                            "Condition key '{}' has missing values. the model can't deal \
+                                with missing values in its condition keys for now, \
+                                    you can run them as predictor to impute them from the data".format(
+                                condition_key
+                            )
+                        )
                     group = set(adata.obs[condition_key]) - set(miss)
                     overlap = group & myset
                     if len(overlap) > 0:
