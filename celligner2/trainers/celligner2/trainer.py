@@ -13,75 +13,96 @@ from ._utils import make_dataset, custom_collate, print_progress
 class Trainer:
     """ScArches base Trainer class. This class contains the implementation of the base CVAE/TRVAE/Celligner Trainer.
 
-        Needs to be extended by the specific Trainer class with a loss() method.
+     Needs to be extended by the specific Trainer class with a loss() method.
 
-       Parameters
-       ----------
-       model: a model
-            Number of input features (i.e. gene in case of scRNA-seq).
-       adata: : `~anndata.AnnData`
-            Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
-            for 'mse' loss.
-       condition_keys: String
-            column name of conditions in `adata.obs` data frame.
-       cell_type_key: List
-            List of column names of different celltype levels in `adata.obs` data frame.
-       batch_size: Integer
-            Defines the batch size that is used during each Iteration
-       alpha_epoch_anneal: Integer or None
-            If not 'None', the KL Loss scaling factor will be annealed from 0 to 1 every epoch until the input
-            integer is reached.
-       alpha_iter_anneal: Integer or None
-            If not 'None', the KL Loss scaling factor will be annealed from 0 to 1 every iteration until the input
-            integer is reached.
-       use_early_stopping: Boolean
-            If 'True' the EarlyStopping class is being used for training to prevent overfitting.
-       reload_best: Boolean
-            If 'True' the best state of the model during training concerning the early stopping criterion is reloaded
-            at the end of training.
-       early_stopping_kwargs: Dict
-            Passes custom Earlystopping parameters.
-       train_frac: Float
-            Defines the fraction of data that is used for training and data that is used for validation.
-       n_samples: Integer or None
-            Defines how many samples are being used during each epoch. This should only be used if hardware resources
-            are limited.
-       use_stratified_sampling: Boolean
-            If 'True', the sampler tries to load equally distributed batches concerning the conditions in every
-            iteration.
-       monitor: Boolean
-            If `True', the progress of the training will be printed after each epoch.
-       monitor_only_val: Boolean
-            If `True', only the progress of the validation datset is displayed.
-       clip_value: Float
-            If the value is greater than 0, all gradients with an higher value will be clipped during training.
-       weight decay: Float
-            Defines the scaling factor for weight decay in the Adam optimizer.
-       n_workers: Integer
-            Passes the 'n_workers' parameter for the torch.utils.data.DataLoader class.
-       seed: Integer
-            Define a specific random seed to get reproduceable results.
+    Parameters
+    ----------
+    model: a model
+         Number of input features (i.e. gene in case of scRNA-seq).
+    adata: : `~anndata.AnnData`
+         Annotated data matrix. Has to be count data for 'nb' and 'zinb' loss and normalized log transformed data
+         for 'mse' loss.
+    condition_keys: String
+         column name of conditions in `adata.obs` data frame.
+    cell_type_key: List
+         List of column names of different celltype levels in `adata.obs` data frame.
+    batch_size: Integer
+         Defines the batch size that is used during each Iteration
+    alpha_epoch_anneal: Integer or None
+         If not 'None', the KL Loss scaling factor will be annealed from 0 to 1 every epoch until the input
+         integer is reached.
+    alpha_iter_anneal: Integer or None
+         If not 'None', the KL Loss scaling factor will be annealed from 0 to 1 every iteration until the input
+         integer is reached.
+    use_early_stopping: Boolean
+         If 'True' the EarlyStopping class is being used for training to prevent overfitting.
+    reload_best: Boolean
+         If 'True' the best state of the model during training concerning the early stopping criterion is reloaded
+         at the end of training.
+    early_stopping_kwargs: Dict
+         Passes custom Earlystopping parameters.
+    train_frac: Float
+         Defines the fraction of data that is used for training and data that is used for validation.
+    n_samples: Integer or None
+         Defines how many samples are being used during each epoch. This should only be used if hardware resources
+         are limited.
+    use_stratified_sampling: Boolean
+         If 'True', the sampler tries to load equally distributed batches concerning the conditions in every
+         iteration.
+    monitor: Boolean
+         If `True', the progress of the training will be printed after each epoch.
+    monitor_only_val: Boolean
+         If `True', only the progress of the validation datset is displayed.
+    clip_value: Float
+         If the value is greater than 0, all gradients with an higher value will be clipped during training.
+    weight decay: Float
+         Defines the scaling factor for weight decay in the Adam optimizer.
+    n_workers: Integer
+         Passes the 'n_workers' parameter for the torch.utils.data.DataLoader class.
+    seed: Integer
+         Define a specific random seed to get reproduceable results.
     """
-    def __init__(self,
-                 model,
-                 adata,
-                 condition_keys: list = None,
-                 predictor_keys: list = None,
-                 cell_type_key: str = None,
-                 batch_size: int = 128,
-                 alpha_epoch_anneal: int = None,
-                 alpha_kl: float = 0.001,
-                 use_early_stopping: bool = True,
-                 reload_best: bool = True,
-                 early_stopping_kwargs: dict = None,
-                 min_weight: float = 0.2,
-                 **kwargs):
+
+    def __init__(
+        self,
+        model,
+        adata,
+        condition_keys: list = None,
+        predictor_keys: list = None,
+        cell_type_key: str = None,
+        batch_size: int = 128,
+        alpha_epoch_anneal: int = None,
+        alpha_kl: float = 0.001,
+        use_early_stopping: bool = True,
+        reload_best: bool = True,
+        early_stopping_kwargs: dict = None,
+        min_weight: float = 0.2,
+        use_leiden: bool = True,
+        leiden_neighbors: int = 8,
+        dataset_key="dataset",
+        **kwargs,
+    ):
 
         self.adata = adata
         self.model = model
         self.condition_keys = condition_keys
         self.predictor_keys = predictor_keys
-        self.cell_type_key = cell_type_key
+        if cell_type_key is not None or not use_leiden:
+            self.cell_type_key = cell_type_key
+        else:
+            import scanpy as sc
+
+            print("using leiden clustering to define training group mixing")
+            self.cell_type_key = "leiden_mix"
+            for val in set(adata.obs[dataset_key]):
+                dat = adata[adata.obs[dataset_key] == val].copy()
+                leiden_neighbors = int(np.log10(len(dat)) * 2)
+                dat.X = np.nan_to_num(dat.X, 0)
+                sc.pp.neighbors(dat, n_neighbors=leiden_neighbors)
+                sc.tl.leiden(dat)
+                self.adata.obs.loc[dat.obs.index, "leiden_mix"] = [
+                    val + "_" + str(i) for i in dat.obs["leiden"]
+                ]
 
         self.batch_size = batch_size
         self.alpha_epoch_anneal = alpha_epoch_anneal
@@ -91,7 +112,9 @@ class Trainer:
 
         self.alpha_kl = alpha_kl
 
-        early_stopping_kwargs = (early_stopping_kwargs if early_stopping_kwargs else dict())
+        early_stopping_kwargs = (
+            early_stopping_kwargs if early_stopping_kwargs else dict()
+        )
 
         self.n_samples = kwargs.pop("n_samples", None)
         self.train_frac = kwargs.pop("train_frac", 0.7)
@@ -111,7 +134,7 @@ class Trainer:
         if torch.cuda.is_available():
             torch.cuda.manual_seed(self.seed)
             self.model.cuda()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.min_weight = min_weight
 
@@ -147,7 +170,7 @@ class Trainer:
             cell_type_encoder=self.model.cell_type_encoder,
             predictor_keys=self.predictor_keys,
             predictor_encoder=self.model.predictor_encoder,
-            min_weight = self.min_weight,
+            min_weight=self.min_weight,
         )
 
     def initialize_loaders(self):
@@ -160,52 +183,68 @@ class Trainer:
 
         if self.use_stratified_sampling:
             # Create Sampler and Dataloaders
-            stratifier_weights = torch.tensor(self.train_data.stratifier_weights, device=self.device)
+            stratifier_weights = torch.tensor(
+                self.train_data.stratifier_weights, device=self.device
+            )
 
-            self.sampler = WeightedRandomSampler(stratifier_weights,
-                                                 num_samples=self.n_samples,
-                                                 replacement=True)
-            self.dataloader_train = torch.utils.data.DataLoader(dataset=self.train_data,
-                                                                batch_size=self.batch_size,
-                                                                sampler=self.sampler,
-                                                                collate_fn=custom_collate,
-                                                                num_workers=self.n_workers)
+            self.sampler = WeightedRandomSampler(
+                stratifier_weights, num_samples=self.n_samples, replacement=True
+            )
+            self.dataloader_train = torch.utils.data.DataLoader(
+                dataset=self.train_data,
+                batch_size=self.batch_size,
+                sampler=self.sampler,
+                collate_fn=custom_collate,
+                num_workers=self.n_workers,
+            )
         else:
-            self.dataloader_train = torch.utils.data.DataLoader(dataset=self.train_data,
-                                                                batch_size=self.batch_size,
-                                                                shuffle=True,
-                                                                collate_fn=custom_collate,
-                                                                num_workers=self.n_workers)
+            self.dataloader_train = torch.utils.data.DataLoader(
+                dataset=self.train_data,
+                batch_size=self.batch_size,
+                shuffle=True,
+                collate_fn=custom_collate,
+                num_workers=self.n_workers,
+            )
         if self.valid_data is not None:
             val_batch_size = self.batch_size
             if self.batch_size > len(self.valid_data):
                 val_batch_size = len(self.valid_data)
-            self.val_iters_per_epoch = int(np.ceil(len(self.valid_data) / self.batch_size))
-            self.dataloader_valid = torch.utils.data.DataLoader(dataset=self.valid_data,
-                                                                batch_size=val_batch_size,
-                                                                shuffle=True,
-                                                                collate_fn=custom_collate,
-                                                                num_workers=self.n_workers)
+            self.val_iters_per_epoch = int(
+                np.ceil(len(self.valid_data) / self.batch_size)
+            )
+            self.dataloader_valid = torch.utils.data.DataLoader(
+                dataset=self.valid_data,
+                batch_size=val_batch_size,
+                shuffle=True,
+                collate_fn=custom_collate,
+                num_workers=self.n_workers,
+            )
 
     def calc_alpha_coeff(self):
         """Calculates current alpha coefficient for alpha annealing.
 
-           Returns
-           -------
-           Current annealed alpha value
+        Returns
+        -------
+        Current annealed alpha value
         """
         if self.alpha_epoch_anneal is not None:
-            alpha_coeff = min(self.alpha_kl * self.epoch / self.alpha_epoch_anneal, self.alpha_kl)
+            alpha_coeff = min(
+                self.alpha_kl * self.epoch / self.alpha_epoch_anneal, self.alpha_kl
+            )
         elif self.alpha_iter_anneal is not None:
-            alpha_coeff = min((self.alpha_kl * (self.epoch * self.iters_per_epoch + self.iter) / self.alpha_iter_anneal), self.alpha_kl)
+            alpha_coeff = min(
+                (
+                    self.alpha_kl
+                    * (self.epoch * self.iters_per_epoch + self.iter)
+                    / self.alpha_iter_anneal
+                ),
+                self.alpha_kl,
+            )
         else:
             alpha_coeff = self.alpha_kl
         return alpha_coeff
 
-    def train(self,
-              n_epochs=400,
-              lr=1e-3,
-              eps=0.01):
+    def train(self, n_epochs: int = 400, lr: float = 1e-3, eps: float = 0.01):
 
         self.initialize_loaders()
         begin = time.time()
@@ -214,7 +253,9 @@ class Trainer:
 
         params = filter(lambda p: p.requires_grad, self.model.parameters())
 
-        self.optimizer = torch.optim.Adam(params, lr=lr, eps=eps, weight_decay=self.weight_decay)
+        self.optimizer = torch.optim.Adam(
+            params, lr=lr, eps=eps, weight_decay=self.weight_decay
+        )
 
         self.before_loop()
 
@@ -225,7 +266,7 @@ class Trainer:
                 for key, batch in batch_data.items():
                     batch_data[key] = batch.to(self.device)
 
-                # Loss Calculation 
+                # Loss Calculation
                 self.on_iteration(batch_data)
 
             # Validation of Model, Monitoring, Early Stopping
@@ -242,7 +283,7 @@ class Trainer:
         self.model.eval()
         self.after_loop()
 
-        self.training_time += (time.time() - begin)
+        self.training_time += time.time() - begin
 
     def before_loop(self):
         pass
@@ -310,9 +351,11 @@ class Trainer:
             self.best_state_dict = self.model.state_dict()
             self.best_epoch = self.epoch
 
-        continue_training, update_lr = self.early_stopping.step(self.logs[early_stopping_metric][-1])
+        continue_training, update_lr = self.early_stopping.step(
+            self.logs[early_stopping_metric][-1]
+        )
         if update_lr:
-            print(f'\nADJUSTED LR')
+            print(f"\nADJUSTED LR")
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] *= self.early_stopping.lr_factor
 

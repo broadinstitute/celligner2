@@ -22,6 +22,24 @@ torch.set_printoptions(precision=3, sci_mode=False, edgeitems=7)
 np.set_printoptions(precision=2, edgeitems=7)
 
 
+def cleanup_annot(annot):
+    for val in set(annot) - set(["celligner2_size_factors", "celligner2_labeled"]):
+        annot = annot.replace(
+            {
+                val: {
+                    n: n.split(val + "_")[-1] if n.startswith(val) else n
+                    for n in set(annot[val])
+                },
+                val
+                + "_pred": {
+                    n: n.split(val + "_")[-1] if n.startswith(val) else n
+                    for n in set(annot[val])
+                },
+            }
+        )
+    return annot
+
+
 class CELLIGNER2_EVAL:
     def __init__(
         self,
@@ -30,35 +48,17 @@ class CELLIGNER2_EVAL:
     ):
         # if type(model) is CELLIGNER2:
         trainer = model.trainer
-        self.adata_latent = model.get_latent(add_classpred=True)
+        # if no predictors:
+        self.adata_latent, self.fullpred = model.get_latent(
+            add_classpred=len(model.predictors_) > 0, get_fullpred=True
+        )
         # else:
         #    self.adata_latent = model.model.get_latent(add_classpred=True)
-
-        for val in set(self.adata_latent.obs) - set(
-            ["celligner2_size_factors", "celligner2_labeled"]
-        ):
-            self.adata_latent.obs = self.adata_latent.obs.replace(
-                {
-                    val: {
-                        n: n.split(val + "_")[-1] if n.startswith(val) else n
-                        for n in set(self.adata_latent.obs[val])
-                    },
-                    val
-                    + "_pred": {
-                        n: n.split(val + "_")[-1] if n.startswith(val) else n
-                        for n in set(self.adata_latent.obs[val])
-                    },
-                }
-            )
-
+        self.adata_latent.obs = cleanup_annot(self.adata_latent.obs)
         self.model = model
         self.trainer = trainer
         self.cell_type_names = None
         self.batch_names = None
-
-    def get_model_arch(self):
-        for name, p in self.model.named_parameters():
-            print(name, " - ", p.size(0), p.size(-1))
 
     def plot_latent(
         self,
@@ -67,24 +67,31 @@ class CELLIGNER2_EVAL:
         n_neighbors=8,
         dir_path=None,
         umap_kwargs={},
+        rerun=True,
         **kwargs,
     ):
         if save:
             show = False
             if dir_path is None:
                 save = False
-        self.adata_latent = AnnData(
-            self.adata_latent.X, obs=self.adata_latent.obs, var=self.adata_latent.var
+
+        if rerun:
+            sc.pp.neighbors(self.adata_latent, n_neighbors=n_neighbors)
+            sc.tl.leiden(self.adata_latent)
+            sc.tl.umap(self.adata_latent, **umap_kwargs)
+        sc.pl.umap(
+            self.adata_latent,
+            show=show,
+            **kwargs,
         )
-        sc.pp.neighbors(self.adata_latent, n_neighbors=n_neighbors)
-        sc.tl.leiden(self.adata_latent)
-        sc.tl.umap(self.adata_latent, **umap_kwargs)
-        sc.pl.umap(self.adata_latent, show=show, **kwargs)
         if save:
             # create folder if not exists
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path)
             plt.savefig(f"{dir_path}_batch.png", bbox_inches="tight")
+
+    def update_true_class(self, data, label_key="tissue_type"):
+        self.adata_latent.obs[label_key] = data
 
     def plot_classification(
         self, classes=["tissue_type", "disease_type", "sex", "age"]
@@ -101,30 +108,145 @@ class CELLIGNER2_EVAL:
                 title="sankey of " + val,
             )
 
-    def get_class_quality(self, classes=["tissue_type", "disease_type", "sex", "age"]):
+    def get_class_quality(
+        self,
+        only=None,
+        on="cell_type",
+        classes=["tissue_type", "disease_type", "sex", "age"],
+    ):
+        if only is not None:
+            only = [only] if type(only) is str else only
+            obs = self.adata_latent.obs[self.adata_latent.obs[on].isin(only)]
+        else:
+            obs = self.adata_latent.obs
         for val in classes:
             print(val)
-            goodloc = self.adata_latent.obs[val] != self.model.miss_
+            goodloc = obs[val] != self.model.miss_
             worked = len(
-                self.adata_latent.obs[
-                    (
-                        np.array(self.adata_latent.obs[val])
-                        == np.array(self.adata_latent.obs[val + "_pred"])
-                    )
-                    & goodloc
-                ]
+                obs[(np.array(obs[val]) == np.array(obs[val + "_pred"])) & goodloc]
             )
-            total = len(self.adata_latent.obs[goodloc])
-            cat = set(self.adata_latent.obs[val + "_pred"])
-            score = f1_score(
-                self.adata_latent.obs.loc[goodloc, val + "_pred"],
-                self.adata_latent.obs.loc[goodloc, val],
+            total = len(obs[goodloc])
+            cat = set(obs[val + "_pred"])
+            macro = f1_score(
+                obs.loc[goodloc, val + "_pred"],
+                obs.loc[goodloc, val],
                 average="macro",
             )
+            weighted = f1_score(
+                obs.loc[goodloc, val + "_pred"],
+                obs.loc[goodloc, val],
+                average="weighted",
+            )
+
             print("all predicted categories: ", cat)
             print("accuracy: ", worked / total)
-            print("F1 Score: %0.2f" % score)
+            print("F1 Score (weigthed): %0.2f" % weighted)
+            print("F1 Score (macro): %0.2f" % macro)
             print("\n")
+        print("use confusion matrix to get more details")
+
+    def get_confusion_matrix(
+        self,
+        of="tissue_type",
+        only=None,
+        on="cell_type",
+        doplot=True,
+        save=False,
+        dir_path="temp/",
+        figsize=(10, 10),
+        font_scale=1,
+    ):
+        """getconfusionMatrix returns a confusion matrix for the given label_key.
+
+        Args:
+            on (str, optional): The label_key to use for the confusion matrix. Defaults to "tissue_type".
+            only ([type], optional): Only show the given classes. Defaults to None.
+            on (str, optional): The label_key to use for the batch. Defaults to "cell_type".
+            doplot (bool, optional): If True, plot the confusion matrix. Defaults to True.
+            save (bool, optional): If True, save the confusion matrix. Defaults to False.
+            dir_path (str, optional): The path to save the confusion matrix. Defaults to "temp/".
+
+        Returns:
+            pd.DataFrame: The confusion matrix.
+        """
+        if only is not None:
+            only = [only] if type(only) is str else only
+            loc = self.adata_latent.obs[on].isin(only)
+            adata = self.adata_latent[loc]
+        else:
+            adata = self.adata_latent
+        lab = list(set(adata.obs[of]) - set("U"))
+
+        confusion = confusion_matrix(
+            adata.obs[of], adata.obs[of + "_pred"], labels=lab, normalize="true"
+        )
+        confusion = pd.DataFrame(confusion, index=lab, columns=lab)
+        if doplot:
+            # if
+            # sns.set(font_scale=font_scale)
+            plt.figure(figsize=figsize, dpi=300)
+            sns.heatmap(
+                confusion,
+                cmap="Blues",
+            )
+            plt.title("Confusion Matrix")
+            plt.ylabel("True")
+            plt.xlabel("Predicted")
+            if save:
+                # create dir if not exists
+                if not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+                plt.savefig(f"{dir_path}_confusion.png", bbox_inches="tight")
+            plt.show()
+
+        return confusion
+
+    def get_class_correlation(
+        self, of=[], only=None, on="lineage", printabove=0.9, doplot=True
+    ):
+        """getClassCorrelation returns a correlation matrix for the given label_key.
+
+        Args:
+            on (str, optional): The label_key to use for the correlation matrix. Defaults to "tissue_type".
+            only ([type], optional): Only show the given classes. Defaults to None.
+            on (str, optional): The label_key to use for the batch. Defaults to "cell_type".
+
+        Returns:
+            pd.DataFrame: The correlation matrix.
+        """
+        if only is not None:
+            only = [only] if type(only) is str else only
+            loc = self.adata_latent.obs[on].isin(only)
+            ind = self.adata_latent[loc].obs.index
+            fullpred = pd.DataFrame(
+                data=self.fullpred[loc], index=ind, columns=self.model.predictors_
+            )
+        else:
+            fullpred = pd.DataFrame(
+                data=self.fullpred,
+                index=self.adata_latent.obs.index,
+                columns=self.model.predictors_,
+            )
+        if len(of) == 0:
+            corr = fullpred.corr()
+        else:
+            corr = fullpred[of].corr()
+        found = []
+        print("these are considered to be the same:\n")
+        for n, m in zip(*np.where(corr > printabove)):
+            if n == m:
+                continue
+            n = self.model.predictors_[n]
+            m = self.model.predictors_[m]
+            if (n, m) in found or (m, n) in found:
+                continue
+            else:
+                found.append((n, m))
+        print("\n".join([str(i)[1:-1] for i in found]))
+        if doplot:
+            sns.clustermap(corr, cmap="RdBu_r")
+            plt.show()
+        return corr, found
 
     def plot_history(self, show=True, save=False, dir_path=None):
         if save:
@@ -151,6 +273,10 @@ class CELLIGNER2_EVAL:
         if show:
             plt.show()
         plt.clf()
+
+    def get_model_arch(self):
+        for name, p in self.model.named_parameters():
+            print(name, " - ", p.size(0), p.size(-1))
 
     def get_ebm(
         self,
@@ -179,9 +305,9 @@ class CELLIGNER2_EVAL:
             print("KNN Purity-Score:  %0.2f" % knn_score)
         return knn_score
 
-    def get_asw(self, label_key="tissue_type", batch_key="cell_type"):
+    def get_asw(self, label_key="tissue_type", on="cell_type"):
         asw_score_batch, asw_score_cell_types = asw(
-            adata=self.adata_latent, label_key=label_key, batch_key=batch_key
+            adata=self.adata_latent, label_key=label_key, batch_key=on
         )
         print("ASW on batch:", asw_score_batch)
         print("ASW on celltypes:", asw_score_cell_types)
@@ -202,95 +328,86 @@ class CELLIGNER2_EVAL:
         )
         return score
 
-    def getconfusionMatrix(
-        self,
-        on="tissue_type",
-        only=None,
-        batch_key="cell_type",
-        doplot=True,
-        save=False,
-        dir_path="temp/",
-        figsize=(13, 13),
-        font_scale=10,
-    ):
-        """getconfusionMatrix returns a confusion matrix for the given label_key.
+    def impute_missing(self, dataset, classonly=False, only=None):
+        """
+        Impute missing values in the data by doing reconstruction and using classification.
 
         Args:
-            on (str, optional): The label_key to use for the confusion matrix. Defaults to "tissue_type".
-            only ([type], optional): Only show the given classes. Defaults to None.
-            batch_key (str, optional): The label_key to use for the batch. Defaults to "cell_type".
-            doplot (bool, optional): If True, plot the confusion matrix. Defaults to True.
-            save (bool, optional): If True, save the confusion matrix. Defaults to False.
-            dir_path (str, optional): The path to save the confusion matrix. Defaults to "temp/".
+            classonly (bool, optional): If True, only use the classifier to impute missing values. Defaults to False.
 
         Returns:
-            pd.DataFrame: The confusion matrix.
+            newadata.AnnData: The initial adata dataset with nans replaced.
         """
+        badloc = ~self.model.goodloc
+        if not classonly:
+            dataset.X[badloc] = self.reconstruct(samples=dataset.obs.index).X[badloc]
+        samecol = set(dataset.obs.columns) & set(self.adata_latent.obs.columns)
         if only is not None:
-            loc = self.adata_latent.obs[batch_key] == only
-            adata = self.adata_latent[loc]
-        else:
-            adata = self.adata_latent
-        lab = list(set(adata.obs[on]) - set("U"))
-        confusion = confusion_matrix(
-            adata.obs[on], adata.obs[on + "_pred"], labels=lab, normalize="true"
-        )
-        confusion = pd.DataFrame(confusion, index=lab, columns=lab)
-        if doplot:
-            # if
-            sns.set(font_scale=0.4)
-            plt.figure(figsize=figsize, dpi=300)
-            sns.heatmap(
-                confusion,
-                cmap="Blues",
-                annot_kws={"size": font_scale},
-            )
-            plt.title("Confusion Matrix")
-            plt.ylabel("True")
-            plt.xlabel("Predicted")
-            if save:
-                # create dir if not exists
-                if not os.path.exists(dir_path):
-                    os.makedirs(dir_path)
-                plt.savefig(f"{dir_path}_confusion.png", bbox_inches="tight")
-            plt.show()
+            samecol = samecol & set(only)
+        loc = dataset.obs[samecol].values == self.model.miss_
+        dataset.X[badloc] = np.nan
+        n = dataset.obs[samecol].values
+        a = self.adata_latent.obs[samecol].values
+        n[loc] = a[loc]
+        dataset.obs[list(samecol)] = n
+        return dataset
 
-        return confusion
+    def reconstruct(self, samples, **make_as):
+        """reconstruct will reconstruct the given samples and produce a new annData dataset with it
 
-    def reconstruct(self, c):
-        """reconstruct returns the reconstructed data.
+        plot the reconstruction quality.
 
         Args:
-            c pd.dataframe: The batch.
+            samples (list[index], optional): index in the latent space to reconstruct. Defaults to None.
+                set to None if use group.
+            make_as (condition_name:pd.dataframe(condition_values, obs_col)), optional):
+                the set of conditions on which to reproduce. Defaults to None.
+                If None, use the condition initially given for the set of samples passed.
 
         Returns:
             AnnData: The reconstructed data.
         """
-        return self.model.reconstruct(self.adata_latent, c)
+        conditions = self.model.condition_keys_
+        if make_as is None:
+            make_as = {"self": self.model.adata.obs.loc[samples][conditions]}
+        else:
+            make_as.update({"self": self.model.adata.obs.loc[samples][conditions]})
+        full = pd.DataFrame()
+        fullobs = pd.DataFrame()
+        for k, v in make_as.items():
+            v = v.copy()
+            val = self.model.reconstruct(self.adata_latent[samples].X, v)
+            full = full.append(val)
+            v.index = [i + "_" + k for i in samples]
+            v["group"] = k
+            fullobs = fullobs.append(v)
+        full.index = fullobs.index
+        reco = AnnData(full, obs=fullobs)
+        return reco
 
-    def reconstructionQC(self, samples=None, group=None, on="", reco_as=None):
-        if samples is not None:
-            if group is not None:
-                raise ValueError("Only one of samples and group can be given")
-            size = len(samples)
-            if reco_as is not None:
-                reco_a = self.reconstruct(self.adata_latent[samples].X, reco_as)
-            reco_b = self.reconstruct(
-                self.adata_latent[samples].X,
-                pd.DataFrame(data=["historical_cl"] * size, columns=["cell_type"]),
+    def compare_to(self, reco, samples=None):
+        """compare_to_reconstruction will compare the given AnnData to the reconstructed data.
+
+        Args:
+            reco (AnnData): The reconstructed data.
+            samples (list[index], optional): index in the latent space to reconstruct. Defaults to None.
+
+        Returns:
+            coeff (pd.DataFrame): The correlation coefficients.
+        """
+        if samples is None:
+            samples = []
+        samples = list(samples) + [
+            val[:-5] for val in reco.obs.index if val.endswith("_self")
+        ]
+        if len(set(samples) - set(self.adata_latent.obs.index)) > 0:
+            raise ValueError(
+                "The samples in the given AnnData do not match the samples in the reconstructed AnnData"
             )
-            true = self.model.adata[samples].X
-            reco_b.columns = self.adata.var.index
-            reco_b = AnnData(reco_b, self.adata.obs.iloc[:size], self.adata.var)
-            reco_a.columns = self.adata.var.index
-            reco_a = AnnData(reco_a, self.adata.obs.iloc[:size], self.adata.var)
-            true.columns = self.adata.var.index
-            true = AnnData(true, self.adata.obs.iloc[:size], self.adata.var)
-            name = true.obs.index.tolist() + [i + "_reco" for i in reco_b.obs.index]
-            coeff = pd.DataFrame(
-                data=np.corrcoef(true.X, reco_b.X), columns=name, index=name
-            )
-        # if group is not None:
-        #
-        f, ax = plt.subplots(figsize=(20, 20))
+        true = self.model.adata[samples]
+        name = true.obs.index.tolist() + reco.obs.index.tolist()
+        coeff = pd.DataFrame(data=np.corrcoef(true.X, reco.X), columns=name, index=name)
+
+        _, ax = plt.subplots(figsize=(13, 13))
         sns.heatmap(coeff, ax=ax)
+        return coeff

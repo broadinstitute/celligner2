@@ -2,14 +2,13 @@ import torch
 import torch.nn as nn
 
 
-
 class CondLayers(nn.Module):
     def __init__(
-            self,
-            n_in: int,
-            n_out: int,
-            n_cond: int,
-            bias: bool,
+        self,
+        n_in: int,
+        n_out: int,
+        n_cond: int,
+        bias: bool,
     ):
         super().__init__()
         self.n_cond = n_cond
@@ -28,57 +27,77 @@ class CondLayers(nn.Module):
 
 class Encoder(nn.Module):
     """ScArches Encoder class. Constructs the encoder sub-network of Celligner2 and CVAE. It will transform primary space
-       input to means and log. variances of latent space with n_dimensions = z_dimension.
+    input to means and log. variances of latent space with n_dimensions = z_dimension.
 
-       Parameters
-       ----------
-       layer_sizes: List
-            List of first and hidden layer sizes
-       latent_dim: Integer
-            Bottleneck layer (z)  size.
-       use_bn: Boolean
-            If `True` batch normalization will be applied to layers.
-       use_ln: Boolean
-            If `True` layer normalization will be applied to layers.
-       use_dr: Boolean
-            If `True` dropout will applied to layers.
-       dr_rate: Float
-            Dropput rate applied to all layers, if `dr_rate`==0 no dropput will be applied.
-       num_classes: Integer
-            Number of classes (conditions) the data contain. if `None` the model will be a normal VAE instead of
-            conditional VAE.
+    Parameters
+    ----------
+    layer_sizes: List
+         List of first and hidden layer sizes
+    latent_dim: Integer
+         Bottleneck layer (z)  size.
+    use_bn: Boolean
+         If `True` batch normalization will be applied to layers.
+    use_ln: Boolean
+         If `True` layer normalization will be applied to layers.
+    use_dr: Boolean
+         If `True` dropout will applied to layers.
+    dr_rate: Float
+         Dropput rate applied to all layers, if `dr_rate`==0 no dropput will be applied.
+    num_classes: Integer
+         Number of classes (conditions) the data contain. if `None` the model will be a normal VAE instead of
+         conditional VAE.
     """
-    def __init__(self,
-                 layer_sizes: list,
-                 latent_dim: int,
-                 use_bn: bool,
-                 use_ln: bool,
-                 use_dr: bool,
-                 dr_rate: float,
-                 num_classes: int = 0):
+
+    def __init__(
+        self,
+        layer_sizes: list,
+        latent_dim: int,
+        use_bn: bool,
+        use_ln: bool,
+        use_dr: bool,
+        dr_rate: float,
+        num_classes: int = 0,
+    ):
         super().__init__()
         self.n_classes = num_classes
         self.FC = None
         if len(layer_sizes) > 1:
             print("Encoder Architecture:")
             self.FC = nn.Sequential()
-            for i, (in_size, out_size) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
+            for i, (in_size, out_size) in enumerate(
+                zip(layer_sizes[:-1], layer_sizes[1:])
+            ):
                 if i == 0:
-                    print("\tInput Layer in, out and cond:", in_size, out_size, self.n_classes)
-                    self.FC.add_module(name="L{:d}".format(i), module=CondLayers(in_size,
-                                                                                 out_size,
-                                                                                 self.n_classes,
-                                                                                 bias=True))
+                    print(
+                        "\tInput Layer in, out and cond:",
+                        in_size,
+                        out_size,
+                        self.n_classes,
+                    )
+                    self.FC.add_module(
+                        name="L{:d}".format(i),
+                        module=CondLayers(in_size, out_size, self.n_classes, bias=True),
+                    )
                 else:
                     print("\tHidden Layer", i, "in/out:", in_size, out_size)
-                    self.FC.add_module(name="L{:d}".format(i), module=nn.Linear(in_size, out_size, bias=True))
+                    self.FC.add_module(
+                        name="L{:d}".format(i),
+                        module=nn.Linear(in_size, out_size, bias=True),
+                    )
                 if use_bn:
-                    self.FC.add_module("N{:d}".format(i), module=nn.BatchNorm1d(out_size, affine=True))
+                    self.FC.add_module(
+                        "N{:d}".format(i), module=nn.BatchNorm1d(out_size, affine=True)
+                    )
                 elif use_ln:
-                    self.FC.add_module("N{:d}".format(i), module=nn.LayerNorm(out_size, elementwise_affine=False))
+                    self.FC.add_module(
+                        "N{:d}".format(i),
+                        module=nn.LayerNorm(out_size, elementwise_affine=False),
+                    )
                 self.FC.add_module(name="A{:d}".format(i), module=nn.ReLU())
                 if use_dr:
-                    self.FC.add_module(name="D{:d}".format(i), module=nn.Dropout(p=dr_rate))
+                    self.FC.add_module(
+                        name="D{:d}".format(i), module=nn.Dropout(p=dr_rate)
+                    )
         print("\tMean/Var Layer in/out:", layer_sizes[-1], latent_dim)
         self.mean_encoder = nn.Linear(layer_sizes[-1], latent_dim)
         self.log_var_encoder = nn.Linear(layer_sizes[-1], latent_dim)
@@ -95,37 +114,40 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     """ScArches Decoder class. Constructs the decoder sub-network of Celligner2 or CVAE networks. It will transform the
-       constructed latent space to the previous space of data with n_dimensions = x_dimension.
+    constructed latent space to the previous space of data with n_dimensions = x_dimension.
 
-       Parameters
-       ----------
-       layer_sizes: List
-            List of hidden and last layer sizes
-       latent_dim: Integer
-            Bottleneck layer (z)  size.
-       recon_loss: String
-            Definition of Reconstruction-Loss-Method, 'mse', 'nb' or 'zinb'.
-       use_bn: Boolean
-            If `True` batch normalization will be applied to layers.
-       use_ln: Boolean
-            If `True` layer normalization will be applied to layers.
-       use_dr: Boolean
-            If `True` dropout will applied to layers.
-       dr_rate: Float
-            Dropput rate applied to all layers, if `dr_rate`==0 no dropput will be applied.
-       num_classes: Integer
-            Number of classes (conditions) the data contain. if `None` the model will be a normal VAE instead of
-            conditional VAE.
+    Parameters
+    ----------
+    layer_sizes: List
+         List of hidden and last layer sizes
+    latent_dim: Integer
+         Bottleneck layer (z)  size.
+    recon_loss: String
+         Definition of Reconstruction-Loss-Method, 'mse', 'nb' or 'zinb'.
+    use_bn: Boolean
+         If `True` batch normalization will be applied to layers.
+    use_ln: Boolean
+         If `True` layer normalization will be applied to layers.
+    use_dr: Boolean
+         If `True` dropout will applied to layers.
+    dr_rate: Float
+         Dropput rate applied to all layers, if `dr_rate`==0 no dropput will be applied.
+    num_classes: Integer
+         Number of classes (conditions) the data contain. if `None` the model will be a normal VAE instead of
+         conditional VAE.
     """
-    def __init__(self,
-                 layer_sizes: list,
-                 latent_dim: int,
-                 recon_loss: str,
-                 use_bn: bool,
-                 use_ln: bool,
-                 use_dr: bool,
-                 dr_rate: float,
-                 num_classes: int = 0):
+
+    def __init__(
+        self,
+        layer_sizes: list,
+        latent_dim: int,
+        recon_loss: str,
+        use_bn: bool,
+        use_ln: bool,
+        use_dr: bool,
+        dr_rate: float,
+        num_classes: int = 0,
+    ):
         super().__init__()
         self.use_dr = use_dr
         self.recon_loss = recon_loss
@@ -134,12 +156,26 @@ class Decoder(nn.Module):
         print("Decoder Architecture:")
         # Create first Decoder layer
         self.FirstL = nn.Sequential()
-        print("\tFirst Layer in, out and cond: ", layer_sizes[0], layer_sizes[1], self.n_classes)
-        self.FirstL.add_module(name="L0", module=CondLayers(layer_sizes[0], layer_sizes[1], self.n_classes, bias=False))
+        print(
+            "\tFirst Layer in, out and cond: ",
+            layer_sizes[0],
+            layer_sizes[1],
+            self.n_classes,
+        )
+        self.FirstL.add_module(
+            name="L0",
+            module=CondLayers(
+                layer_sizes[0], layer_sizes[1], self.n_classes, bias=False
+            ),
+        )
         if use_bn:
-            self.FirstL.add_module("N0", module=nn.BatchNorm1d(layer_sizes[1], affine=True))
+            self.FirstL.add_module(
+                "N0", module=nn.BatchNorm1d(layer_sizes[1], affine=True)
+            )
         elif use_ln:
-            self.FirstL.add_module("N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False))
+            self.FirstL.add_module(
+                "N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False)
+            )
         self.FirstL.add_module(name="A0", module=nn.ReLU())
         if self.use_dr:
             self.FirstL.add_module(name="D0", module=nn.Dropout(p=dr_rate))
@@ -147,32 +183,53 @@ class Decoder(nn.Module):
         # Create all Decoder hidden layers
         if len(layer_sizes) > 2:
             self.HiddenL = nn.Sequential()
-            for i, (in_size, out_size) in enumerate(zip(layer_sizes[1:-1], layer_sizes[2:])):
-                if i+3 < len(layer_sizes):
-                    print("\tHidden Layer", i+1, "in/out:", in_size, out_size)
-                    self.HiddenL.add_module(name="L{:d}".format(i+1), module=nn.Linear(in_size, out_size, bias=False))
+            for i, (in_size, out_size) in enumerate(
+                zip(layer_sizes[1:-1], layer_sizes[2:])
+            ):
+                if i + 3 < len(layer_sizes):
+                    print("\tHidden Layer", i + 1, "in/out:", in_size, out_size)
+                    self.HiddenL.add_module(
+                        name="L{:d}".format(i + 1),
+                        module=nn.Linear(in_size, out_size, bias=False),
+                    )
                     if use_bn:
-                        self.HiddenL.add_module("N{:d}".format(i+1), module=nn.BatchNorm1d(out_size, affine=True))
+                        self.HiddenL.add_module(
+                            "N{:d}".format(i + 1),
+                            module=nn.BatchNorm1d(out_size, affine=True),
+                        )
                     elif use_ln:
-                        self.HiddenL.add_module("N{:d}".format(i + 1), module=nn.LayerNorm(out_size, elementwise_affine=False))
-                    self.HiddenL.add_module(name="A{:d}".format(i+1), module=nn.ReLU())
+                        self.HiddenL.add_module(
+                            "N{:d}".format(i + 1),
+                            module=nn.LayerNorm(out_size, elementwise_affine=False),
+                        )
+                    self.HiddenL.add_module(
+                        name="A{:d}".format(i + 1), module=nn.ReLU()
+                    )
                     if self.use_dr:
-                        self.HiddenL.add_module(name="D{:d}".format(i+1), module=nn.Dropout(p=dr_rate))
+                        self.HiddenL.add_module(
+                            name="D{:d}".format(i + 1), module=nn.Dropout(p=dr_rate)
+                        )
         else:
             self.HiddenL = None
 
         # Create Output Layers
         print("\tOutput Layer in/out: ", layer_sizes[-2], layer_sizes[-1], "\n")
         if self.recon_loss == "mse":
-            self.recon_decoder = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.ReLU())
+            self.recon_decoder = nn.Sequential(
+                nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.ReLU()
+            )
         if self.recon_loss == "zinb":
             # mean gamma
-            self.mean_decoder = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.Softmax(dim=-1))
+            self.mean_decoder = nn.Sequential(
+                nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.Softmax(dim=-1)
+            )
             # dropout
             self.dropout_decoder = nn.Linear(layer_sizes[-2], layer_sizes[-1])
         if self.recon_loss == "nb":
             # mean gamma
-            self.mean_decoder = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.Softmax(dim=-1))
+            self.mean_decoder = nn.Sequential(
+                nn.Linear(layer_sizes[-2], layer_sizes[-1]), nn.Softmax(dim=-1)
+            )
 
     def forward(self, z, batch=None):
         # Add Condition Labels to Decoder Input
@@ -205,14 +262,17 @@ class Classifier(nn.Module):
     """
     Classifier for the Conditional VAE.
     """
-    def __init__(self,
-                 layer_sizes: list,
-                 latent_dim: int,
-                 dr_rate: float,
-                 use_bn: bool,
-                 use_ln: bool,
-                 use_dr: bool,
-                 num_classes: int = 0):
+
+    def __init__(
+        self,
+        layer_sizes: list,
+        latent_dim: int,
+        dr_rate: float,
+        use_bn: bool,
+        use_ln: bool,
+        use_dr: bool,
+        num_classes: int = 0,
+    ):
         super().__init__()
         self.use_dr = use_dr
         self.n_classes = num_classes
@@ -221,35 +281,55 @@ class Classifier(nn.Module):
         # Create first Classifier layer
         self.FirstL = nn.Sequential()
         print("\tFirst Layer in/out: ", layer_sizes[0], layer_sizes[1])
-        self.FirstL.add_module(name="L0", module=nn.Linear(layer_sizes[0], layer_sizes[1], bias=False))
+        self.FirstL.add_module(
+            name="L0", module=nn.Linear(layer_sizes[0], layer_sizes[1], bias=False)
+        )
         if use_bn:
-            self.FirstL.add_module("N0", module=nn.BatchNorm1d(layer_sizes[1], affine=True))
+            self.FirstL.add_module(
+                "N0",
+                module=nn.BatchNorm1d(layer_sizes[1], affine=True),
+            )
         elif use_ln:
-            self.FirstL.add_module("N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False))
+            self.FirstL.add_module(
+                "N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False)
+            )
         self.FirstL.add_module(name="A0", module=nn.ReLU())
         if self.use_dr:
             self.FirstL.add_module(name="D0", module=nn.Dropout(p=dr_rate))
 
         # Create all Classifier hidden layers
         if len(layer_sizes) > 3:
-            self.HiddenL = nn.Sequential() 
-            for i, (in_size, out_size) in enumerate(zip(layer_sizes[1:-2], layer_sizes[2:-1])):
-                print("\tHidden Layer", i+1, "in/out:", in_size, out_size)
-                self.HiddenL.add_module(name="L{:d}".format(i+1), module=nn.Linear(in_size, out_size, bias=False))
+            self.HiddenL = nn.Sequential()
+            for i, (in_size, out_size) in enumerate(
+                zip(layer_sizes[1:-2], layer_sizes[2:-1])
+            ):
+                print("\tHidden Layer", i + 1, "in/out:", in_size, out_size)
+                self.HiddenL.add_module(
+                    name="L{:d}".format(i + 1),
+                    module=nn.Linear(in_size, out_size, bias=False),
+                )
                 # https://stats.stackexchange.com/questions/361700/lack-of-batch-normalization-before-last-fully-connected-layer
-                if use_bn and i+3 < len(layer_sizes):
-                    self.HiddenL.add_module("N{:d}".format(i+1), module=nn.BatchNorm1d(out_size, affine=True))
+                if use_bn and i + 3 < len(layer_sizes):
+                    self.HiddenL.add_module(
+                        "N{:d}".format(i + 1),
+                        module=nn.BatchNorm1d(out_size, affine=True),
+                    )
                 elif use_ln:
-                    self.HiddenL.add_module("N{:d}".format(i + 1), module=nn.LayerNorm(out_size, elementwise_affine=False))
-                self.HiddenL.add_module(name="A{:d}".format(i+1), module=nn.ReLU())
+                    self.HiddenL.add_module(
+                        "N{:d}".format(i + 1),
+                        module=nn.LayerNorm(out_size, elementwise_affine=False),
+                    )
+                self.HiddenL.add_module(name="A{:d}".format(i + 1), module=nn.ReLU())
                 if self.use_dr:
-                    self.HiddenL.add_module(name="D{:d}".format(i+1), module=nn.Dropout(p=dr_rate))
+                    self.HiddenL.add_module(
+                        name="D{:d}".format(i + 1), module=nn.Dropout(p=dr_rate)
+                    )
         else:
             self.HiddenL = None
 
         # Create Output Layers
         print("\tOutput Layer in/out: ", layer_sizes[-2], layer_sizes[-1], "\n")
-        #https://glassboxmedicine.com/2019/05/26/classification-sigmoid-vs-softmax/
+        # https://glassboxmedicine.com/2019/05/26/classification-sigmoid-vs-softmax/
         self.classifier = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]))
 
     def forward(self, z, batch=None):
@@ -260,4 +340,3 @@ class Classifier(nn.Module):
         else:
             x = zL
         return self.classifier(x)
-

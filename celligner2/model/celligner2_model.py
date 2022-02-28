@@ -74,8 +74,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         predictor_keys: Optional[list] = None,
         use_own_kl: bool = False,
         miss: str = "U",
+        apply_log: bool = True,
     ):
         self.adata = adata
+        self.goodloc = ~np.isnan(adata.X)
 
         self.condition_keys_ = condition_keys
         self.predictor_keys_ = predictor_keys
@@ -84,7 +86,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             if condition_keys is not None:
                 myset = set()
                 for condition_key in condition_keys:
-                    if len(set(adata.obs[condition_key]) - set(miss)) > 0:
+                    if len(set(adata.obs[condition_key]) & set(miss)) > 0:
                         raise ValueError(
                             "Condition key '{}' has missing values. the model can't deal \
                                 with missing values in its condition keys for now, \
@@ -117,6 +119,12 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 myset = set()
                 for predictor_key in predictor_keys:
                     group = set(adata.obs[predictor_key]) - set(miss)
+                    if len(group) == 0:
+                        raise ValueError(
+                            "Predictor key '{}' has no values. please check your obs".format(
+                                predictor_key
+                            )
+                        )
                     overlap = group & myset
                     if len(overlap) > 0:
                         adata.obs.replace(
@@ -154,6 +162,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.use_own_kl_ = use_own_kl
 
         self.input_dim_ = adata.n_vars
+        self.apply_log_ = apply_log
 
         self.model = Celligner2(
             self.input_dim_,
@@ -172,6 +181,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.betaclass_,
             self.use_bn_,
             self.use_ln_,
+            self.apply_log_,
         )
 
         self.is_trained_ = False
@@ -223,6 +233,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             "predictor_keys": dct["predictor_keys_"],
             "miss": dct["miss_"],
             "input_dim": dct["input_dim_"],
+            "apply_log": dct["apply_log_"],
         }
 
         return init_params
@@ -237,6 +248,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         adata: Optional[AnnData] = None,
         mean: bool = False,
         add_classpred: bool = False,
+        get_fullpred: bool = False,
     ):
         """Map `x` in to the latent space. This function will feed data in encoder  and return  z for each sample in
         data.
@@ -278,6 +290,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 x[batch, :].to(device), c[batch], mean, add_classpred
             )
             latents += [latent.cpu().detach()]
+
             if add_classpred:
                 classes += [classe.cpu().detach()]
 
@@ -288,37 +301,42 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 for key in self.predictor_keys_
             }
             predictor_decoder = {v: k for k, v in self.model.predictor_encoder.items()}
-            classes = np.array(torch.cat(classes))
-            nclasses = []
+            predictions = np.array(torch.cat(classes))
+            classes = []
+
             for _, v in predictor_set.items():
-                loc = np.array([self.model.predictor_encoder[vv] for vv in v])
-                nclasses.append(
-                    [
-                        predictor_decoder[name]
-                        for name in loc[np.argmax(classes[:, loc], axis=1)]
-                    ]
-                )
+                if len(v) == 0:
+                    classes.append([""] * len(predictions))
+                else:
+                    loc = np.array([self.model.predictor_encoder[vv] for vv in v])
+                    classes.append(
+                        [
+                            predictor_decoder[name]
+                            for name in loc[np.argmax(predictions[:, loc], axis=1)]
+                        ]
+                    )
             classes = pd.DataFrame(
-                data=np.array(nclasses).T,
+                data=np.array(classes).T,
                 columns=[i + "_pred" for i in predictor_set.keys()],
                 index=self.adata.obs.index,
             )
         else:
             classes = pd.DataFrame(index=self.adata.obs.index)
-        return (
-            AnnData(
-                np.array(torch.cat(latents)),
-                obs=pd.concat(
-                    [
-                        self.adata.obs[self.condition_keys_ + self.predictor_keys_],
-                        classes,
-                    ],
-                    axis=1,
-                ),
-            )
-            if wasnull
-            else np.array(torch.cat(latents))
+
+        res = AnnData(
+            np.array(torch.cat(latents)),
+            obs=pd.concat(
+                [
+                    self.adata.obs[self.condition_keys_ + self.predictor_keys_],
+                    classes,
+                ],
+                axis=1,
+            ),
         )
+        if get_fullpred and add_classpred:
+            return res, predictions
+        else:
+            return res, None
 
     def reconstruct(
         self,
