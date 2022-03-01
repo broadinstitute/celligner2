@@ -332,7 +332,7 @@ class Classifier(nn.Module):
         # https://glassboxmedicine.com/2019/05/26/classification-sigmoid-vs-softmax/
         self.classifier = nn.Sequential(nn.Linear(layer_sizes[-2], layer_sizes[-1]))
 
-    def forward(self, z, batch=None):
+    def forward(self, z):
         # predicts class probabilities from latent space
         zL = self.FirstL(z)
         if self.HiddenL is not None:
