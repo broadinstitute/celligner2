@@ -50,7 +50,14 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     use_bn: Boolean
          If `True` batch normalization will be applied to layers.
     use_ln: Boolean
-         If `True` layer normalization will be applied to layers.
+        If `True` layer normalization will be applied to layers.
+    mask: Array or List
+        if not None, an array of 0s and 1s from utils.add_annotations to create VAE with a masked linear decoder.
+    mask_key: String
+        A key in `adata.varm` for the mask if the mask is not provided.
+    soft_mask: Boolean
+        Use soft mask option. If True, the model will enforce mask with L1 regularization
+        instead of multipling weight of the linear decoder by the binary mask.
     """
 
     def __init__(
@@ -75,6 +82,9 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         use_own_kl: bool = False,
         miss: str = "U",
         apply_log: bool = True,
+        mask: Optional[Union[np.ndarray, list]] = None,
+        mask_key: str = "I",
+        soft_mask: bool = False,
     ):
         self.adata = adata
         self.goodloc = ~np.isnan(adata.X)
@@ -109,6 +119,9 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 self.conditions_ = list(
                     set(adata.obs[condition_keys].values.flatten()) - set(miss)
                 )
+                self.condition_set_ = {
+                    key: set(adata.obs[key]) - set(miss) for key in condition_keys
+                }
             else:
                 self.conditions_ = []
         else:
@@ -139,6 +152,9 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 self.predictors_ = list(
                     set(adata.obs[predictor_keys].values.flatten()) - set(miss)
                 )
+                self.predictor_set_ = {
+                    key: set(adata.obs[key]) - set(miss) for key in predictor_keys
+                }
             else:
                 self.predictors_ = []
 
@@ -153,6 +169,11 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.use_mmd_ = use_mmd
         self.mmd_on_ = mmd_on
         self.mmd_boundary_ = mmd_boundary
+
+        mask = mask if isinstance(mask, list) else mask.tolist()
+        self.mask_ = torch.tensor(mask).float()
+
+        self.soft_mask_ = soft_mask
 
         self.recon_loss_ = recon_loss
         self.beta_ = beta
@@ -182,6 +203,8 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.use_bn_,
             self.use_ln_,
             self.apply_log_,
+            self.soft_mask_,
+            self.mask_,
         )
 
         self.is_trained_ = False
@@ -234,6 +257,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             "miss": dct["miss_"],
             "input_dim": dct["input_dim_"],
             "apply_log": dct["apply_log_"],
+            "predictor_set": dct["predictor_set_"],
+            "condition_set": dct["condition_set_"],
+            "soft_mask": dct["soft_mask_"],
+            "mask": dct["mask_"],
         }
 
         return init_params
@@ -270,11 +297,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         if adata is None:
             wasnull = True
             adata = self.adata
-        condition_sets = {key: set(adata.obs[key]) for key in self.condition_keys_}
         conditions = label_encoder_2D(
             adata,
             encoder=self.model.condition_encoder,
-            label_sets=condition_sets,
+            label_sets=self.condition_set_,
         )
 
         c = torch.tensor(conditions, dtype=torch.long)
@@ -284,6 +310,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         classes = []
         indices = torch.arange(x.size(0))
         subsampled_indices = indices.split(512)
+
         for batch in subsampled_indices:
 
             latent, classe = self.model.get_latent(
@@ -296,15 +323,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
 
         if add_classpred:
             # import pdb; pdb.set_trace()
-            predictor_set = {
-                key: set(self.adata.obs[key]) - set(self.miss_)
-                for key in self.predictor_keys_
-            }
             predictor_decoder = {v: k for k, v in self.model.predictor_encoder.items()}
             predictions = np.array(torch.cat(classes))
             classes = []
-
-            for _, v in predictor_set.items():
+            for _, v in self.predictor_set_.items():
                 if len(v) == 0:
                     classes.append([""] * len(predictions))
                 else:
@@ -317,17 +339,17 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                     )
             classes = pd.DataFrame(
                 data=np.array(classes).T,
-                columns=[i + "_pred" for i in predictor_set.keys()],
-                index=self.adata.obs.index,
+                columns=[i + "_pred" for i in self.predictor_set_.keys()],
+                index=adata.obs.index,
             )
         else:
-            classes = pd.DataFrame(index=self.adata.obs.index)
+            classes = pd.DataFrame(index=adata.obs.index)
 
         res = AnnData(
             np.array(torch.cat(latents)),
             obs=pd.concat(
                 [
-                    self.adata.obs[self.condition_keys_ + self.predictor_keys_],
+                    adata.obs[self.condition_keys_ + self.predictor_keys_],
                     classes,
                 ],
                 axis=1,
@@ -355,11 +377,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
              Returns array containing latent space encoding of 'x'.
         """
         device = next(self.model.parameters()).device
-        condition_sets = {key: set(c[key]) for key in self.condition_keys_}
         conditions = label_encoder_2D(
             adata=AnnData(latent, c),
             encoder=self.model.condition_encoder,
-            label_sets=condition_sets,
+            label_sets=self.condition_set_,
         )
 
         c = torch.tensor(conditions, dtype=torch.long)
@@ -376,3 +397,79 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         return pd.DataFrame(
             np.array(torch.cat(expressions)), columns=self.adata.var.index
         )
+
+    @classmethod
+    def load_query_data(
+        cls,
+        adata: AnnData,
+        reference_model: Union[str, "TRVAE"],
+        freeze: bool = True,
+        freeze_expression: bool = True,
+        unfreeze_ext: bool = True,
+        remove_dropout: bool = True,
+        new_n_ext: Optional[int] = None,
+        new_n_ext_m: Optional[int] = None,
+        new_ext_mask: Optional[Union[np.ndarray, list]] = None,
+        new_soft_ext_mask: bool = False,
+        **kwargs
+    ):
+        """Transfer Learning function for new data. Uses old trained model and expands it for new conditions.
+        Parameters
+        ----------
+        adata
+             Query anndata object.
+        reference_model
+             A model to expand or a path to a model folder.
+        freeze: Boolean
+             If 'True' freezes every part of the network except the first layers of encoder/decoder.
+        freeze_expression: Boolean
+             If 'True' freeze every weight in first layers except the condition weights.
+        remove_dropout: Boolean
+             If 'True' remove Dropout for Transfer Learning.
+        unfreeze_ext: Boolean
+             If 'True' do not freeze weights for new constrained and unconstrained extension terms.
+        new_n_ext: Integer
+             Number of new unconstarined extension terms to add to the reference model.
+             Used for query mapping.
+        new_n_ext_m: Integer
+             Number of new constrained extension terms to add to the reference model.
+             Used for query mapping.
+        new_ext_mask: Array or List
+             Mask (similar to the mask argument) for new unconstarined extension terms.
+        new_soft_ext_mask: Boolean
+             Use the soft mask mode for training with the constarined extension terms.
+        kwargs
+             kwargs for the initialization of the EXPIMAP class for the query model.
+        Returns
+        -------
+        new_model
+             New (query) model to train on query data.
+        """
+        params = {}
+        params["adata"] = adata
+        params["reference_model"] = reference_model
+        params["freeze"] = freeze
+        params["freeze_expression"] = freeze_expression
+        params["remove_dropout"] = remove_dropout
+
+        if new_n_ext is not None:
+            params["n_ext"] = new_n_ext
+        if new_n_ext_m is not None:
+            params["n_ext_m"] = new_n_ext_m
+            if new_ext_mask is None:
+                raise ValueError("Provide new ext_mask")
+            params["ext_mask"] = new_ext_mask
+            params["soft_ext_mask"] = new_soft_ext_mask
+
+        params.update(kwargs)
+
+        new_model = super().load_query_data(**params)
+
+        if freeze and unfreeze_ext:
+            for name, p in new_model.model.named_parameters():
+                if "ext_L.weight" in name or "ext_L_m.weight" in name:
+                    p.requires_grad = True
+                if "expand_mean_encoder" in name or "expand_var_encoder" in name:
+                    p.requires_grad = True
+
+        return new_model

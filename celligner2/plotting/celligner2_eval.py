@@ -14,6 +14,11 @@ from celligner2.metrics.metrics import entropy_batch_mixing, knn_purity, asw, nm
 from celligner2.model import Celligner2, CELLIGNER2
 from celligner2.trainers import Celligner2Trainer
 from .sankey import sankey_diagram
+from .agg_model import Agg_class
+
+from captum.attr import LRP, Saliency
+import gseapy as gp
+from genepy import rna
 
 sc.settings.set_figure_params(dpi=500, frameon=False)
 sc.set_figure_params(dpi=500)
@@ -45,13 +50,30 @@ class CELLIGNER2_EVAL:
         self,
         model: Union[Celligner2, CELLIGNER2],
         trainer: Celligner2Trainer = None,
+        additional_adata: AnnData = None,
+        only_additional: bool = False,
     ):
         # if type(model) is CELLIGNER2:
         trainer = model.trainer
         # if no predictors:
-        self.adata_latent, self.fullpred = model.get_latent(
-            add_classpred=len(model.predictors_) > 0, get_fullpred=True
+        adata_latent, fullpred = model.get_latent(
+            add_classpred=len(model.predictors_) > 0,
+            get_fullpred=True,
+            adata=additional_adata,
         )
+        if not only_additional:
+            adata_latent_more, fullpred_more = model.get_latent(
+                add_classpred=len(model.predictors_) > 0, get_fullpred=True
+            )
+            self.adata_latent = AnnData(
+                X=np.vstack([adata_latent.X, adata_latent_more.X]),
+                obs=pd.concat([adata_latent.obs, adata_latent_more.obs]),
+                var=adata_latent.var,
+            )
+            self.fullpred = np.vstack([fullpred, fullpred_more])
+        else:
+            self.adata_latent = adata_latent
+            self.fullpred = fullpred
         # else:
         #    self.adata_latent = model.model.get_latent(add_classpred=True)
         self.adata_latent.obs = cleanup_annot(self.adata_latent.obs)
@@ -411,3 +433,108 @@ class CELLIGNER2_EVAL:
         _, ax = plt.subplots(figsize=(13, 13))
         sns.heatmap(coeff, ax=ax)
         return coeff
+
+    def explain_predictions(
+        self,
+        on,
+        of,
+        using="LRP",
+        do_gsea=True,
+        sets=[
+            "temp/genesets/h.all.v7.5.1.entrez.gmt",
+            "temp/genesets/c6.all.v7.5.1.entrez.gmt",
+            "temp/genesets/c2.cp.reactome.v7.5.1.entrez.gmt",
+            "temp/genesets/c8.all.v7.5.1.entrez.gmt",
+        ],
+        **kwargs,
+    ):
+        """
+        Explain the predictions of a model.
+
+        Args:
+            on (str): The key of the group to use
+            of (str): The key of the group to predict
+            using (str, optional): The method to use. Defaults to 'LRP'.
+            do_gsea (bool, optional): If True, perform GSEA on the predictions. Defaults to True.
+        """
+        inp = torch.tensor(
+            self.model.adata[
+                (self.model.adata.obs.tissue_type == on)
+                & (self.model.adata.obs.cell_type == of)
+            ].X
+        )
+        if using == "LRP":
+            explainor = LRP(
+                Agg_class(self.model.model.encoder, self.model.model.classifier)
+            )
+
+        elif using == "Saliency":
+            explainor = Saliency(
+                Agg_class(self.model.model.encoder, self.model.model.classifier)
+            )
+        elif using == "LIME_LRP":
+            explainor = LIME_LRP(
+                Agg_class(self.model.model.encoder, self.model.model.classifier)
+            )
+        else:
+            raise ValueError("The given explainor is not valid.")
+        attr = explainor.attribute(
+            inputs=inp,
+            additional_forward_args=torch.tensor([[0, 1]] * inp.shape[0]),
+            target=self.model.model.predictor_encoder[on],
+        )
+        res = pd.DataFrame(
+            data=attr.detach().numpy(),
+            columns=self.model.adata.var.index,
+            index=self.model.adata[
+                (self.model.adata.obs.tissue_type == on)
+                & (self.model.adata.obs.cell_type == of)
+            ].obs.index,
+        ).mean()
+        if using == "LRP":
+            res = res.abs() * 60
+        found, _ = rna.convertGenes(
+            res.index.tolist(), from_idtype="ensembl_gene_id", to_idtype="entrezgene_id"
+        )
+        res.index = found
+        res = res[~res.index.isna()]
+        res.index = res.index.astype(str)
+        res = res[~res.index.str.startswith("ENS")]
+        res.index = res.index.astype(float).astype(int).astype(str)
+        res = res.reset_index().sort_values(by=0, ascending=False)
+        if do_gsea:
+            return self.do_gsea(res, sets=sets, **kwargs), res
+        else:
+            return None, res
+
+    def do_gsea(
+        self,
+        data,
+        do_filter=False,
+        sets=[
+            "temp/genesets/h.all.v7.5.1.entrez.gmt",
+            "temp/genesets/c6.all.v7.5.1.entrez.gmt",
+            "temp/genesets/c2.cp.reactome.v7.5.1.entrez.gmt",
+            "temp/genesets/c8.all.v7.5.1.entrez.gmt",
+        ],
+        using="prerank",
+        **kwargs,
+    ):
+        """
+        Perform GSEA on the predictions.
+
+
+
+        """
+        if using == "prerank":
+            gsea = gp.prerank
+        elif using == "gsea":
+            gsea = gp.gsea
+        else:
+            raise ValueError("The given method is not valid.")
+        res = pd.concat(
+            [gsea(data, val, **kwargs).res2d for val in sets], axis=1
+        ).reset_index()
+        if do_filter:
+            res = res[res.fdr < 0.05]
+        return res.sort_values(by="es", ascending=False)
