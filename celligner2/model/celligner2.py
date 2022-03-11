@@ -4,7 +4,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal, kl_divergence
 import torch.nn.functional as F
-
+import numpy as np
+from captum.attr import LRP
 from .modules import Encoder, Decoder, Classifier
 from .losses import (
     mse,
@@ -13,8 +14,6 @@ from .losses import (
     nb,
     classifier_hb_loss,
 )
-from numpy import mean as np_mean
-from numpy import sum as np_sum
 from ._utils import one_hot_encoder
 from celligner2.othermodels.base._base import CVAELatentsModelMixin
 
@@ -72,6 +71,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         betaclass: float = 0.8,
         use_bn: bool = False,
         use_ln: bool = True,
+        applylog: bool = True,
     ):
         super().__init__()
         assert isinstance(hidden_layer_sizes, list)
@@ -91,6 +91,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         self.use_own_kl = use_own_kl
         self.conditions = conditions
         self.predictors = predictors
+        self.applylog = applylog
         self.condition_encoder = {
             k: v for k, v in zip(conditions, range(len(conditions)))
         }
@@ -142,9 +143,9 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             self.classifier_hidden_layer_sizes,
             self.latent_dim,
             self.dr_rate,
-            self.use_dr,
             self.use_bn,
             self.use_ln,
+            self.use_dr,
             self.n_predictors,
         )
         self.decoder = Decoder(
@@ -160,22 +161,26 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
 
     def forward(
         self,
-        x=None,
-        batch=None,
-        sizefactor=None,
-        classes=None,
-        weight=None,
-        goodloc=None,
+        x: torch.Tensor = None,
+        batch: torch.Tensor = None,
+        sizefactor: torch.Tensor = None,
+        classes: torch.Tensor = None,
+        weight: torch.Tensor = None,
+        goodloc: torch.Tensor = None,
     ):
-        x_log = torch.log(1 + x)
-        if self.recon_loss == "mse":
+        if self.applylog:
+            x_log = torch.log(1 + x)
+            if self.recon_loss == "mse":
+                x_log = x
+        else:
             x_log = x
 
         z1_mean, z1_log_var = self.encoder(x_log, batch)
         # print(z1_mean.mean(), z1_log_var.mean())
         z1 = self.sampling(z1_mean, z1_log_var)
         outputs = self.decoder(z1, batch)
-        pred_classes = self.classifier(z1_mean, batch)
+        if classes is not None:
+            pred_classes = self.classifier(z1)
 
         if self.recon_loss == "mse":
             recon_x, y1 = outputs
@@ -231,12 +236,22 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                     y1, batch, self.n_conditions, self.beta, self.mmd_boundary
                 )
 
-        class_ce_loss = classifier_hb_loss(
-            pred_classes, classes, beta=self.betaclass, weight=weight
+        class_ce_loss = (
+            classifier_hb_loss(
+                pred_classes, classes, beta=self.betaclass, weight=weight
+            )
+            if classes is not None
+            else torch.tensor(0.0, device=kl_div.device)
         )
         return recon_loss, kl_div, mmd_loss, class_ce_loss
 
-    def get_latent(self, x, c=None, mean=False, add_classpred=False):
+    def get_latent(
+        self,
+        x: torch.Tensor,
+        c: torch.Tensor = None,
+        mean: bool = False,
+        add_classpred: bool = False,
+    ):
         """Map `x` in to the latent space. This function will feed data in encoder  and return  z for each sample in
         data.
 
@@ -252,21 +267,20 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         -------
         Returns Torch Tensor containing latent space encoding of 'x'.
         """
-        x_ = torch.log(1 + x)
-        if self.recon_loss == "mse":
-            x_ = x
-        z_mean, z_log_var = self.encoder(x_, c)
-        # import pdb
+        if self.applylog:
+            x = torch.log(1 + x)
 
-        # pdb.set_trace()
+        z_mean, z_log_var = self.encoder(x, c)
+
         latent = self.sampling(z_mean, z_log_var)
         if add_classpred:
             classes = self.classifier(z_mean)
-        if mean:
-            return z_mean if not add_classpred else (z_mean, classes)
-        return latent if not add_classpred else (latent, classes)
 
-    def reconstructLatent(self, latent, c=None):
+        if mean:
+            return (z_mean, None) if not add_classpred else (z_mean, classes)
+        return (latent, None) if not add_classpred else (latent, classes)
+
+    def reconstructLatent(self, latent: np.array, c=None):
         """reconstructLatent recontruct the expression matrix from latent space.
 
         Args:

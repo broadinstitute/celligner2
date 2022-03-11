@@ -94,12 +94,14 @@ class Trainer:
 
             print("using leiden clustering to define training group mixing")
             self.cell_type_key = "leiden_mix"
+            self.adata.obs[self.cell_type_key] = None
             for val in set(adata.obs[dataset_key]):
                 dat = adata[adata.obs[dataset_key] == val].copy()
                 leiden_neighbors = int(np.log10(len(dat)) * 2)
                 dat.X = np.nan_to_num(dat.X, 0)
                 sc.pp.neighbors(dat, n_neighbors=leiden_neighbors)
                 sc.tl.leiden(dat)
+
                 self.adata.obs.loc[dat.obs.index, "leiden_mix"] = [
                     val + "_" + str(i) for i in dat.obs["leiden"]
                 ]
