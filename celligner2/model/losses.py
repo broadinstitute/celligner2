@@ -207,7 +207,7 @@ def mmd_loss_calc(source_features, target_features):
     return cost
 
 
-def mmd(y, c, n_conditions, beta, boundary):
+def mmd(y, c, n_conditions, beta, boundary, maindataset):
     """Initializes Maximum Mean Discrepancy(MMD) between every different condition.
 
     Parameters
@@ -216,8 +216,6 @@ def mmd(y, c, n_conditions, beta, boundary):
          Number of classes (conditions) the data contain.
     beta: float
          beta coefficient for MMD loss.
-    boundary: integer
-         If not 'None', mmd loss is only calculated on #new conditions.
     y: torch.Tensor
          Torch Tensor of computed latent data.
     c: torch.Tensor
@@ -228,10 +226,11 @@ def mmd(y, c, n_conditions, beta, boundary):
     Returns MMD loss.
     """
     # partition separates y into num_cls subsets w.r.t. their labels c
-    conditions_mmd = partition(y, c, n_conditions)
+    conditions_mmd = partition(y, c, n_conditions, maindataset)
     loss = torch.tensor(0.0, device=y.device)
     if boundary is not None:
         for i in range(boundary):
+            # if conditions_mmd ==
             for j in range(boundary, n_conditions):
                 if conditions_mmd[i].size(0) < 2 or conditions_mmd[j].size(0) < 2:
                     continue
@@ -243,8 +242,9 @@ def mmd(y, c, n_conditions, beta, boundary):
             for j in range(i):
                 if conditions_mmd[j].size(0) < 1 or i == j:
                     continue
+                if maindataset is not None and j != 0:
+                    continue
                 loss += mmd_loss_calc(conditions_mmd[i], conditions_mmd[j])
-
     return beta * loss
 
 

@@ -72,6 +72,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         use_bn: bool = False,
         use_ln: bool = True,
         applylog: bool = True,
+        main_dataset=None,
     ):
         super().__init__()
         assert isinstance(hidden_layer_sizes, list)
@@ -109,6 +110,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         self.use_bn = use_bn
         self.use_ln = use_ln
         self.mmd_on = mmd_on
+        self.main_dataset = main_dataset
 
         self.dr_rate = dr_rate
         if self.dr_rate > 0:
@@ -224,16 +226,29 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             )
 
         mmd_loss = torch.tensor(0.0, device=z1.device)
-
+        # this is a debugger line
         if self.use_mmd:
-            batch = torch.argmax(batch, dim=1)
             if self.mmd_on == "z":
                 mmd_loss = mmd(
-                    z1, batch, self.n_conditions, self.beta, self.mmd_boundary
+                    z1,
+                    batch,
+                    self.n_conditions,
+                    self.beta,
+                    self.mmd_boundary,
+                    self.condition_encoder[self.main_dataset]
+                    if self.main_dataset
+                    else None,
                 )
             else:
                 mmd_loss = mmd(
-                    y1, batch, self.n_conditions, self.beta, self.mmd_boundary
+                    y1,
+                    batch,
+                    self.n_conditions,
+                    self.beta,
+                    self.mmd_boundary,
+                    self.condition_encoder[self.main_dataset]
+                    if self.main_dataset
+                    else None,
                 )
 
         class_ce_loss = (

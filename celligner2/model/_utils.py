@@ -24,10 +24,13 @@ def one_hot_encoder(idx, n_cls):
     return onehot
 
 
-def partition(data, partitions, num_partitions):
+def partition(data, partitions, num_partitions, main_partition=None):
     res = []
-    partitions = partitions.flatten()
-    for i in range(num_partitions):
-        indices = torch.nonzero((partitions == i), as_tuple=False).squeeze(1)
-        res += [data[indices]]
-    return res
+    main = []
+    partdim = partitions.shape[1]
+    for i in torch.unique(partitions, dim=0):
+        if main_partition is not None and i[main_partition]:
+            main += [data[(partitions == i).sum(1) == partdim]]
+        else:
+            res += [data[(partitions == i).sum(1) == partdim]]
+    return [torch.cat(main)] + res if main_partition is not None else res

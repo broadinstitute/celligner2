@@ -73,7 +73,6 @@ class AnnotatedDataset(Dataset):
                 label_sets=predictor_set,
             )
             self.predictors = torch.tensor(predictors, dtype=torch.long)
-            # import pdb; pdb.set_trace()
             # predictors[predictors == -1] = 0
             # weights = predictors.sum(0)
             # self.weights =  (( 1 + minweight ) - weights / weights.max()) / (1 + minweight)
@@ -164,5 +163,4 @@ class AnnotatedDataset(Dataset):
                 )
         for i in range(predictions.shape[0]):
             strat_weights += np.where(predictions[i], weights_per_prediction[i], 0)
-        # import pdb; pdb.set_trace()
         return strat_weights + self.minweight

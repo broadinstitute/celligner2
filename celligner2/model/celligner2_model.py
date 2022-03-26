@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from anndata import AnnData
-from typing import Optional
+from typing import Optional, Union
 
 from .celligner2 import Celligner2
 from celligner2.trainers.celligner2.semisupervised import Celligner2Trainer
@@ -85,6 +85,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         mask: Optional[Union[np.ndarray, list]] = None,
         mask_key: str = "I",
         soft_mask: bool = False,
+        main_dataset=None,
     ):
         self.adata = adata
         self.goodloc = ~np.isnan(adata.X)
@@ -170,9 +171,11 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.mmd_on_ = mmd_on
         self.mmd_boundary_ = mmd_boundary
 
-        mask = mask if isinstance(mask, list) else mask.tolist()
-        self.mask_ = torch.tensor(mask).float()
-
+        if mask is not None:
+            mask = mask if isinstance(mask, list) else mask.tolist()
+            self.mask_ = torch.tensor(mask).float()
+        else:
+            self.mask_ = None
         self.soft_mask_ = soft_mask
 
         self.recon_loss_ = recon_loss
@@ -184,6 +187,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
 
         self.input_dim_ = adata.n_vars
         self.apply_log_ = apply_log
+        self.main_dataset_ = main_dataset
 
         self.model = Celligner2(
             self.input_dim_,
@@ -203,8 +207,9 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.use_bn_,
             self.use_ln_,
             self.apply_log_,
-            self.soft_mask_,
-            self.mask_,
+            # self.soft_mask_,
+            # self.mask_,
+            self.main_dataset_,
         )
 
         self.is_trained_ = False
@@ -236,6 +241,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
 
     @classmethod
     def _get_init_params_from_dict(cls, dct):
+        print(dct.keys())
         init_params = {
             "condition_keys": dct["condition_keys_"],
             "conditions": dct["conditions_"],
@@ -257,10 +263,11 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             "miss": dct["miss_"],
             "input_dim": dct["input_dim_"],
             "apply_log": dct["apply_log_"],
-            "predictor_set": dct["predictor_set_"],
-            "condition_set": dct["condition_set_"],
-            "soft_mask": dct["soft_mask_"],
-            "mask": dct["mask_"],
+            # "predictor_set": dct["predictor_set_"],
+            # "condition_set": dct["condition_set_"],
+            # "soft_mask": dct["soft_mask_"],
+            # "mask": dct["mask_"],
+            "main_dataset": dct["main_dataset_"],
         }
 
         return init_params
