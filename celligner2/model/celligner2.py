@@ -73,6 +73,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         use_ln: bool = True,
         applylog: bool = True,
         main_dataset=None,
+        expimap_set=None,
     ):
         super().__init__()
         assert isinstance(hidden_layer_sizes, list)
@@ -132,34 +133,38 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         decoder_layer_sizes.reverse()
         decoder_layer_sizes.append(self.input_dim)
         self.classifier_hidden_layer_sizes = classifier_hidden_layer_sizes
-        self.encoder = Encoder(
-            encoder_layer_sizes,
-            self.latent_dim,
-            self.use_bn,
-            self.use_ln,
-            self.use_dr,
-            self.dr_rate,
-            self.n_conditions,
-        )
-        self.classifier = Classifier(
-            self.classifier_hidden_layer_sizes,
-            self.latent_dim,
-            self.dr_rate,
-            self.use_bn,
-            self.use_ln,
-            self.use_dr,
-            self.n_predictors,
-        )
-        self.decoder = Decoder(
-            decoder_layer_sizes,
-            self.latent_dim,
-            self.recon_loss,
-            self.use_bn,
-            self.use_ln,
-            self.use_dr,
-            self.dr_rate,
-            self.n_conditions,
-        )
+        if expimap_set is not None:
+            print("expimap mode")
+            encoder_layer_sizes.extend([len(expimap_set)])
+        else:
+            self.encoder = Encoder(
+                encoder_layer_sizes,
+                self.latent_dim,
+                self.use_bn,
+                self.use_ln,
+                self.use_dr,
+                self.dr_rate,
+                self.n_conditions,
+            )
+            self.classifier = Classifier(
+                self.classifier_hidden_layer_sizes,
+                self.latent_dim,
+                self.dr_rate,
+                self.use_bn,
+                self.use_ln,
+                self.use_dr,
+                self.n_predictors,
+            )
+            self.decoder = Decoder(
+                decoder_layer_sizes,
+                self.latent_dim,
+                self.recon_loss,
+                self.use_bn,
+                self.use_ln,
+                self.use_dr,
+                self.dr_rate,
+                self.n_conditions,
+            )
 
     def forward(
         self,
@@ -214,7 +219,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
 
         z1_var = torch.exp(z1_log_var) + 1e-4
         if self.use_own_kl:
-            kl_div = -0.5 * torch.sum(1 + z1_log_var - z1_mean ** 2 - z1_var)
+            kl_div = -0.5 * torch.sum(1 + z1_log_var - z1_mean**2 - z1_var)
         else:
             kl_div = (
                 kl_divergence(

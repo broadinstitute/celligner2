@@ -168,7 +168,7 @@ class BaseMixin:
 
         cls._validate_adata(adata, attr_dict)
         init_params = cls._get_init_params_from_dict(attr_dict)
-
+        init_params.pop("input_dim")
         model = cls(adata, **init_params)
         model.model.load_state_dict(model_state_dict)
         model.model.eval()
@@ -259,10 +259,6 @@ class SurgeryMixin:
                     )
                 myset = myset | group
                 new = group - set(prevconditions)
-                # this is a debugger line
-                import pdb
-
-                pdb.set_trace()
                 if len(new) > 0:
                     print("Adding new conditions: ", new)
                     conditions += list(new)
@@ -317,7 +313,7 @@ class SurgeryMixin:
                 if len(new) > 0:
                     # print("Adding new predictions: ", new)
                     # prevpredictors += list(new)
-                    print("can't add new predictions for now")
+                    raise ValueError("can't add new predictions for now")
 
         if remove_dropout:
             init_params["dr_rate"] = 0.0

@@ -1,5 +1,6 @@
 import inspect
 import os
+
 import anndata
 
 from numpy.lib.function_base import _percentile_dispatcher
@@ -63,7 +64,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     def __init__(
         self,
         adata: AnnData,
-        condition_keys: list = None,
+        condition_keys: Optional[list] = None,
         conditions: Optional[list] = None,
         hidden_layer_sizes: list = [256, 64],
         classifier_hidden_layer_sizes: list = [64, 32],
@@ -83,9 +84,12 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         miss: str = "U",
         apply_log: bool = True,
         mask: Optional[Union[np.ndarray, list]] = None,
+        expimap_set: Optional[dict] = None,
         mask_key: str = "I",
         soft_mask: bool = False,
         main_dataset=None,
+        predictor_set={},  # only on load
+        condition_set={},  # only on load
     ):
         self.adata = adata
         self.goodloc = ~np.isnan(adata.X)
@@ -120,14 +124,17 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 self.conditions_ = list(
                     set(adata.obs[condition_keys].values.flatten()) - set(miss)
                 )
-                self.condition_set_ = {
-                    key: set(adata.obs[key]) - set(miss) for key in condition_keys
-                }
             else:
                 self.conditions_ = []
         else:
             self.conditions_ = conditions
 
+        # TODO: add a version when no condition_keys are provided
+        if condition_keys is not None:
+            self.condition_set_ = {
+                key: set(adata.obs[key]) - set(miss) for key in condition_keys
+            }
+        # we only want the current's adata condition set.
         if predictors is None:
             if predictor_keys is not None:
                 myset = set()
@@ -153,14 +160,20 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
                 self.predictors_ = list(
                     set(adata.obs[predictor_keys].values.flatten()) - set(miss)
                 )
-                self.predictor_set_ = {
-                    key: set(adata.obs[key]) - set(miss) for key in predictor_keys
-                }
             else:
                 self.predictors_ = []
 
         else:
             self.predictors_ = predictors
+
+        if predictor_keys is not None:
+            self.predictor_set_ = {
+                key: set(adata.obs[key]) - set(miss) for key in predictor_keys
+            }
+        else:
+            self.predictor_set_ = {}
+        for k, v in predictor_set.items():
+            self.predictor_set_[k] = set(v) & set(self.predictor_set_[k])
 
         self.miss_ = miss
         self.hidden_layer_sizes_ = hidden_layer_sizes
@@ -184,10 +197,15 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.use_bn_ = use_bn
         self.use_ln_ = use_ln
         self.use_own_kl_ = use_own_kl
+        self.expimap_set_ = expimap_set
 
         self.input_dim_ = adata.n_vars
         self.apply_log_ = apply_log
-        self.main_dataset_ = main_dataset
+        if main_dataset not in set(adata.obs[condition_keys].values.flatten()):
+            print("main dataset not in conditions, removing..")
+            self.main_dataset_ = None
+        else:
+            self.main_dataset_ = main_dataset
 
         self.model = Celligner2(
             self.input_dim_,
@@ -210,6 +228,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             # self.soft_mask_,
             # self.mask_,
             self.main_dataset_,
+            self.expimap_set_,
         )
 
         self.is_trained_ = False
@@ -263,8 +282,8 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             "miss": dct["miss_"],
             "input_dim": dct["input_dim_"],
             "apply_log": dct["apply_log_"],
-            # "predictor_set": dct["predictor_set_"],
-            # "condition_set": dct["condition_set_"],
+            "predictor_set": dct["predictor_set_"],
+            "condition_set": dct["condition_set_"],
             # "soft_mask": dct["soft_mask_"],
             # "mask": dct["mask_"],
             "main_dataset": dct["main_dataset_"],
@@ -333,17 +352,19 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             predictor_decoder = {v: k for k, v in self.model.predictor_encoder.items()}
             predictions = np.array(torch.cat(classes))
             classes = []
+            # TODO: use conditions_ if set is None:
             for _, v in self.predictor_set_.items():
                 if len(v) == 0:
                     classes.append([""] * len(predictions))
                 else:
-                    loc = np.array([self.model.predictor_encoder[vv] for vv in v])
+                    loc = np.array([self.model.predictor_encoder[item] for item in v])
                     classes.append(
                         [
                             predictor_decoder[name]
                             for name in loc[np.argmax(predictions[:, loc], axis=1)]
                         ]
                     )
+            # TODO: need to be careful when adding new predictions or conditions
             classes = pd.DataFrame(
                 data=np.array(classes).T,
                 columns=[i + "_pred" for i in self.predictor_set_.keys()],

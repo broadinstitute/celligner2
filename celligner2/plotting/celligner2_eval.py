@@ -2,6 +2,7 @@ import numpy as np
 import scanpy as sc
 import torch
 import os
+from collections import Counter
 import matplotlib.pyplot as plt
 from typing import Union
 import seaborn as sns
@@ -61,7 +62,7 @@ class CELLIGNER2_EVAL:
             get_fullpred=True,
             adata=additional_adata,
         )
-        if not only_additional:
+        if not only_additional and additional_adata is not None:
             adata_latent_more, fullpred_more = model.get_latent(
                 add_classpred=len(model.predictors_) > 0, get_fullpred=True
             )
@@ -90,6 +91,7 @@ class CELLIGNER2_EVAL:
         dir_path=None,
         umap_kwargs={},
         rerun=True,
+        use_genepy=False,
         **kwargs,
     ):
         if save:
@@ -101,16 +103,20 @@ class CELLIGNER2_EVAL:
             sc.pp.neighbors(self.adata_latent, n_neighbors=n_neighbors)
             sc.tl.leiden(self.adata_latent)
             sc.tl.umap(self.adata_latent, **umap_kwargs)
-        sc.pl.umap(
-            self.adata_latent,
-            show=show,
-            **kwargs,
-        )
-        if save:
-            # create folder if not exists
-            if not os.path.exists(dir_path):
-                os.makedirs(dir_path)
-            plt.savefig(f"{dir_path}_batch.png", bbox_inches="tight")
+
+        if use_genepy:
+            plot.scatter()
+        else:
+            sc.pl.umap(
+                self.adata_latent,
+                show=show,
+                **kwargs,
+            )
+            if save:
+                # create folder if not exists
+                if not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+                plt.savefig(f"{dir_path}_batch.png", bbox_inches="tight")
 
     def update_true_class(self, data, label_key="tissue_type"):
         self.adata_latent.obs[label_key] = data
@@ -538,3 +544,30 @@ class CELLIGNER2_EVAL:
         if do_filter:
             res = res[res.fdr < 0.05]
         return res.sort_values(by="es", ascending=False)
+
+    def define_clusters(self, lim=0.2, col="leiden"):
+        """define_clusters will define clusters based on the leiden clustering.
+
+        Args:
+            lim (float, optional): The limit of the cluster. Defaults to 0.2.
+            col (str, optional): The column to use for the clustering. Defaults to 'leiden'.
+        """
+        cat = {}
+        counts = {}
+        for i in set(self.adata_latent.obs[col]):
+            group = ""
+            lin = self.adata_latent.obs[self.adata_latent.obs.leiden == i].lineage
+            count = Counter(lin)
+            counts[i] = count
+            for n, c in count.items():
+                if c > lim * len(lin):
+                    group = group + "+" + n
+            name = group[1:]
+            if name in cat.values():
+                c = 2
+                name += "_" + str(c)
+                while name in cat.values():
+                    c += 1
+                    name = name[:-1] + str(c)
+            cat.update({i: name})
+        return cat, counts
