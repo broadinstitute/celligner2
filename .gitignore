@@ -5,7 +5,6 @@ __pycache__/
 
 # C extensions
 *.so
-
 # Distribution / packaging
 .Python
 build/
@@ -137,3 +136,6 @@ notes.md
 .RData
 temp
 reference_model
+data/hcmi/
+gdc-client*
+workspace.code-workspace
