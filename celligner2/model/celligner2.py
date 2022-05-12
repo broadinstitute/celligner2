@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -6,14 +6,8 @@ from torch.distributions import Normal, kl_divergence
 import torch.nn.functional as F
 import numpy as np
 from captum.attr import LRP
-from .modules import Encoder, Decoder, Classifier
-from .losses import (
-    mse,
-    mmd,
-    zinb,
-    nb,
-    classifier_hb_loss,
-)
+from .modules import Encoder, Decoder, Classifier, MaskedLinearDecoder  # , ExtEncoder
+from .losses import mse, mmd, zinb, nb, classifier_hb_loss, hsic
 from ._utils import one_hot_encoder
 from celligner2.othermodels.base._base import CVAELatentsModelMixin
 
@@ -72,8 +66,14 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         use_bn: bool = False,
         use_ln: bool = True,
         applylog: bool = True,
-        main_dataset=None,
-        expimap_set=None,
+        main_dataset: str = None,
+        expimap_mode: bool = None,
+        mask: Optional[Union[np.ndarray, list]] = None,
+        n_unconstrained: int = 0,
+        use_l_encoder: bool = False,
+        use_hsic: bool = False,
+        hsic_one_vs_all: bool = False,
+        soft_mask: bool = False,
     ):
         super().__init__()
         assert isinstance(hidden_layer_sizes, list)
@@ -94,12 +94,20 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         self.conditions = conditions
         self.predictors = predictors
         self.applylog = applylog
+
         self.condition_encoder = {
             k: v for k, v in zip(conditions, range(len(conditions)))
         }
         self.predictor_encoder = {
             k: v for k, v in zip(predictors, range(len(predictors)))
         }
+
+        self.use_hsic = use_hsic and self.n_ext_decoder > 0
+        self.hsic_one_vs_all = hsic_one_vs_all
+        self.soft_mask = soft_mask and mask is not None
+        self.n_unconstrained = n_unconstrained
+
+        self.use_l_encoder = use_l_encoder
 
         self.cell_type_encoder = None
         self.recon_loss = recon_loss
@@ -133,28 +141,46 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         decoder_layer_sizes.reverse()
         decoder_layer_sizes.append(self.input_dim)
         self.classifier_hidden_layer_sizes = classifier_hidden_layer_sizes
-        if expimap_set is not None:
-            print("expimap mode")
-            encoder_layer_sizes.extend([len(expimap_set)])
-        else:
-            self.encoder = Encoder(
-                encoder_layer_sizes,
-                self.latent_dim,
+        if self.use_l_encoder:
+            self.l_encoder = Encoder(
+                [self.input_dim, 128],
+                1,
                 self.use_bn,
                 self.use_ln,
                 self.use_dr,
                 self.dr_rate,
                 self.n_conditions,
             )
-            self.classifier = Classifier(
-                self.classifier_hidden_layer_sizes,
+        self.encoder = Encoder(
+            encoder_layer_sizes,
+            self.latent_dim,
+            self.use_bn,
+            self.use_ln,
+            self.use_dr,
+            self.dr_rate,
+            self.n_conditions,
+        )
+        self.classifier = Classifier(
+            self.classifier_hidden_layer_sizes,
+            self.latent_dim,
+            self.dr_rate,
+            self.use_bn,
+            self.use_ln,
+            self.use_dr,
+            self.n_predictors,
+        )
+        if expimap_mode:
+            print("expimap mode")
+            self.decoder = MaskedLinearDecoder(
                 self.latent_dim,
-                self.dr_rate,
-                self.use_bn,
-                self.use_ln,
-                self.use_dr,
-                self.n_predictors,
+                self.input_dim,
+                self.n_conditions,
+                mask,
+                self.recon_loss,
+                self.n_unconstrained,
             )
+
+        else:
             self.decoder = Decoder(
                 decoder_layer_sizes,
                 self.latent_dim,
@@ -263,6 +289,23 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             if classes is not None
             else torch.tensor(0.0, device=kl_div.device)
         )
+        if self.use_hsic:
+            if not self.hsic_one_vs_all:
+                z_ann = z1[:, : -self.n_ext_decoder]
+                z_ext = z1[:, -self.n_ext_decoder :]
+                hsic_loss = hsic(z_ann, z_ext)
+            else:
+                hsic_loss = 0.0
+                sz = self.latent_dim + self.n_ext_encoder
+                shift = self.latent_dim + self.n_ext_m_decoder
+                for i in range(self.n_ext_decoder):
+                    sel_cols = torch.full((sz,), True, device=z1.device)
+                    sel_cols[shift + i] = False
+                    rest = z1[:, sel_cols]
+                    term = z1[:, ~sel_cols]
+                    hsic_loss = hsic_loss + hsic(term, rest)
+        else:
+            hsic_loss = torch.tensor(0.0, device=z1.device)
         return recon_loss, kl_div, mmd_loss, class_ce_loss
 
     def get_latent(

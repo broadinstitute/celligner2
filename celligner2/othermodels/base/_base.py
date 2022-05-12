@@ -29,6 +29,10 @@ class BaseMixin:
 
     def _get_user_attributes(self):
         # returns all the self attributes defined in a model class, eg, self.is_trained_
+        # this is a debugger line
+        import pdb
+
+        pdb.set_trace()
         attributes = inspect.getmembers(self, lambda a: not (inspect.isroutine(a)))
         attributes = [
             a for a in attributes if not (a[0].startswith("__") and a[0].endswith("__"))
@@ -98,22 +102,35 @@ class BaseMixin:
 
         new_state_dict = self.model.state_dict()
         for key, load_ten in load_state_dict.items():
-
             new_ten = new_state_dict[key]
             if new_ten.size() == load_ten.size():
                 continue
             # new categoricals changed size
             else:
                 load_ten = load_ten.to(device)
-                print(new_ten.size(), load_ten.size())
-                dim_diff = new_ten.size()[-1] - load_ten.size()[-1]
-                if dim_diff > 0:
-                    fixed_ten = torch.cat([load_ten, new_ten[..., -dim_diff:]], dim=-1)
-                    load_state_dict[key] = fixed_ten
+                # only one dim diff
+                n_dims = len(new_ten.shape)
+                for i, val in enumerate(new_ten.shape):
+                    if val < load_ten.shape[i]:
+                        raise ValueError(
+                            "Can only increase the size of the model for now"
+                        )
+                if n_dims == 1:
+                    new_ten[: load_ten.shape[0]] = load_ten
+                elif n_dims == 2:
+                    new_ten[: load_ten.shape[0], : load_ten.shape[1]] = load_ten
+                elif n_dims == 3:
+                    new_ten[
+                        : load_ten.shape[0], : load_ten.shape[1], : load_ten.shape[2]
+                    ] = load_ten
                 else:
-                    dim_diff = new_ten.size()[0] - load_ten.size()[0]
-                    fixed_ten = torch.cat([load_ten[:dim_diff, ...], new_ten], dim=0)
-                    load_state_dict[key] = fixed_ten
+                    raise ValueError("Too many dimensions")
+
+                load_state_dict[key] = new_ten
+
+        for key, ten in new_state_dict.items():
+            if key not in load_state_dict:
+                load_state_dict[key] = ten
 
         self.model.load_state_dict(load_state_dict)
 
@@ -313,12 +330,11 @@ class SurgeryMixin:
                 if len(new) > 0:
                     # print("Adding new predictions: ", new)
                     # prevpredictors += list(new)
-                    raise ValueError("can't add new predictions for now")
+                    raise ValueError("can't add new predictions for now, seeing: ", new)
 
         if remove_dropout:
             init_params["dr_rate"] = 0.0
 
-        init_params.pop("input_dim")
         init_params.update(kwargs)
 
         new_model = cls(adata, **init_params)
@@ -327,6 +343,7 @@ class SurgeryMixin:
         if freeze:
             new_model.model.freeze = True
             for name, p in new_model.model.named_parameters():
+                print(name)
                 p.requires_grad = False
                 if "theta" in name:
                     p.requires_grad = True
@@ -391,7 +408,7 @@ class CVAELatentsMixin:
         for batch in subsampled_indices:
             latent = self.model.get_latent(x[batch, :].to(device), c[batch], mean)
             latents += [latent.cpu().detach()]
-
+            # small thing here to add for expimap
         return (
             AnnData(np.array(torch.cat(latents)), self.model.adata.obs)
             if wasnull
