@@ -105,7 +105,29 @@ class CELLIGNER2_EVAL:
             sc.tl.umap(self.adata_latent, **umap_kwargs)
 
         if use_genepy:
-            plot.scatter()
+            from bokeh.palettes import Category20_20, Set3_12, Accent8
+            from genepy.utils import plot
+
+            color = Category20_20 + Set3_12 + Accent8
+            if len(set(self.adata_latent.obs[kwargs["color"][0]])) > len(color):
+                raise ValueError("Too many things to plot")
+
+            labels = {i: self.adata_latent.obs[i].tolist() for i in kwargs["color"]}
+            colors = self.adata_latent.obs[kwargs["color"][0]].replace(
+                {
+                    i: color[n]
+                    for n, i in enumerate(
+                        list(set(self.adata_latent.obs[kwargs["color"][0]]))
+                    )
+                }
+            )
+            plot.scatter(
+                self.adata_latent.obsm["X_umap"],
+                labels=labels,
+                colors=colors,
+                colprovided=True,
+                **kwargs,
+            )
         else:
             sc.pl.umap(
                 self.adata_latent,
