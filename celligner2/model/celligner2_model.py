@@ -95,12 +95,16 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         mask: Optional[Union[np.ndarray, list]] = None,
         mask_key: str = "",
         n_unconstrained: int = 0,
-        soft_mask: bool = False,
         use_hsic: bool = False,
         hsic_one_vs_all: bool = False,
         main_dataset=None,
-        predictor_set={},  # only on load
-        condition_set={},  # only on load
+        use_l_encoder: bool = False,
+        # only on load
+        n_expand: int = 0,
+        ext_mask: Optional[Union[np.ndarray, list]] = None,
+        ext_n_unconstrained: int = 0,
+        predictor_set={},
+        condition_set={},
     ):
         self.adata = adata
         self.goodloc = ~np.isnan(adata.X)
@@ -206,10 +210,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.latent_dim_ = len(self.mask_) + n_unconstrained
         else:
             self.mask_ = None
-        self.soft_mask_ = soft_mask
         self.n_unconstrained_ = n_unconstrained
         self.use_hsic_ = use_hsic
         self.hsic_one_vs_all_ = hsic_one_vs_all
+        self.ext_mask_ = ext_mask
         # end of expimap mode params
 
         self.recon_loss_ = recon_loss
@@ -218,6 +222,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.use_bn_ = use_bn
         self.use_ln_ = use_ln
         self.use_own_kl_ = use_own_kl
+
+        self.n_expand_ = n_expand
+        self.use_l_encoder_ = use_l_encoder
+        self.ext_n_unconstrained_ = ext_n_unconstrained
 
         self.input_dim_ = adata.n_vars
         self.apply_log_ = apply_log
@@ -246,13 +254,16 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             self.use_ln_,
             self.apply_log_,
             self.main_dataset_,
+            self.n_expand_,
             # expimap mode params
-            self.soft_mask_,
+            self.expimap_mode_,
             self.mask_,
+            self.ext_mask_,
             self.n_unconstrained_,
+            self.ext_n_unconstrained_,
+            self.use_l_encoder_,
             self.use_hsic_,
             self.hsic_one_vs_all_,
-            self.expimap_mode_,
         )
 
         self.is_trained_ = False
@@ -318,7 +329,6 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             if "main_dataset_" in dct.keys()
             else None,
             # expimap mode params
-            "soft_mask": dct["soft_mask_"] if "soft_mask_" in dct.keys() else False,
             "mask": dct["mask_"] if "mask_" in dct.keys() else None,
             "mask_key": dct["mask_key_"] if "mask_key_" in dct.keys() else "",
             "n_unconstrained": dct["n_unconstrained_"]
@@ -471,7 +481,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     def load_query_data(
         cls,
         adata: AnnData,
-        reference_model: Union[str, "TRVAE"],
+        reference_model: Union[str, "CELLIGNER2"],
         freeze: bool = True,
         freeze_expression: bool = True,
         unfreeze_new: bool = True,
@@ -479,7 +489,6 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         new_unconstrained: Optional[int] = None,
         # new_constrained: Optional[int] = None,
         new_mask: Optional[Union[np.ndarray, list]] = None,
-        soft_mask: bool = False,
         **kwargs
     ):
         """Transfer Learning function for new data. Uses old trained model and expands it for new conditions.
@@ -508,8 +517,6 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
              Used for query mapping.
         new_ext_mask: Array or List
              Mask (similar to the mask argument) for new unconstrained extension terms.
-        new_soft_ext_mask: Boolean
-             Use the soft mask mode for training with the constrained extension terms.
         kwargs
              kwargs for the initialization of the EXPIMAP class for the query model.
         Returns
@@ -528,7 +535,6 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
             params["new_unconstrained"] = new_unconstrained
         if new_mask is not None:
             params["new_mask"] = new_mask
-            params["soft_mask"] = soft_mask
 
         params.update(kwargs)
 

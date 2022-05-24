@@ -67,13 +67,15 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         use_ln: bool = True,
         applylog: bool = True,
         main_dataset: str = None,
+        n_expand: int = 0,
         expimap_mode: bool = None,
         mask: Optional[Union[np.ndarray, list]] = None,
+        ext_mask: Optional[Union[np.ndarray, list]] = None,
         n_unconstrained: int = 0,
+        ext_n_unconstrained: int = 0,
         use_l_encoder: bool = False,
         use_hsic: bool = False,
         hsic_one_vs_all: bool = False,
-        soft_mask: bool = False,
     ):
         super().__init__()
         assert isinstance(hidden_layer_sizes, list)
@@ -104,7 +106,6 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
 
         self.use_hsic = use_hsic and self.n_ext_decoder > 0
         self.hsic_one_vs_all = hsic_one_vs_all
-        self.soft_mask = soft_mask and mask is not None
         self.n_unconstrained = n_unconstrained
 
         self.use_l_encoder = use_l_encoder
@@ -141,6 +142,33 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         decoder_layer_sizes.reverse()
         decoder_layer_sizes.append(self.input_dim)
         self.classifier_hidden_layer_sizes = classifier_hidden_layer_sizes
+
+        if mask is not None:
+            self.n_inact_genes = (1 - mask).sum().item()
+            soft_shape = mask.shape
+            if soft_shape[0] != latent_dim or soft_shape[1] != input_dim:
+                raise ValueError("Incorrect shape of the soft mask.")
+            self.mask = mask.t()
+            mask = None
+        else:
+            self.mask = None
+
+        if ext_mask is not None:
+            self.n_inact_ext_genes = (1 - ext_mask).sum().item()
+            ext_shape = ext_mask.shape
+            if ext_shape[0] != self.n_ext_m_decoder:
+                raise ValueError(
+                    "Dim 0 of ext_mask should be the same as n_ext_m_decoder."
+                )
+            if ext_shape[1] != self.input_dim:
+                raise ValueError("Dim 1 of ext_mask should be the same as input_dim.")
+            self.ext_mask = ext_mask.t()
+            ext_mask = None
+        else:
+            self.ext_mask = None
+
+        self.n_expand = n_expand
+
         if self.use_l_encoder:
             self.l_encoder = Encoder(
                 [self.input_dim, 128],
@@ -150,6 +178,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                 self.use_dr,
                 self.dr_rate,
                 self.n_conditions,
+                self.n_expand,
             )
         self.encoder = Encoder(
             encoder_layer_sizes,
@@ -159,6 +188,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             self.use_dr,
             self.dr_rate,
             self.n_conditions,
+            self.n_expand,
         )
         self.classifier = Classifier(
             self.classifier_hidden_layer_sizes,
@@ -168,6 +198,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             self.use_ln,
             self.use_dr,
             self.n_predictors,
+            self.n_expand,
         )
         if expimap_mode:
             print("expimap mode")
@@ -178,6 +209,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                 mask,
                 self.recon_loss,
                 self.n_unconstrained,
+                self.n_expand,
             )
 
         else:
@@ -190,6 +222,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                 self.use_dr,
                 self.dr_rate,
                 self.n_conditions,
+                self.n_expand,
             )
 
     def forward(

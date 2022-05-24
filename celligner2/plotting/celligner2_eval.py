@@ -1,3 +1,4 @@
+import pdb
 import numpy as np
 import scanpy as sc
 import torch
@@ -82,6 +83,7 @@ class CELLIGNER2_EVAL:
         self.trainer = trainer
         self.cell_type_names = None
         self.batch_names = None
+        self.additional_adata = additional_adata
 
     def plot_latent(
         self,
@@ -464,10 +466,13 @@ class CELLIGNER2_EVAL:
 
     def explain_predictions(
         self,
-        on,
         of,
-        using="LRP",
+        dataset=None,
+        on="lineage",
+        dataset_col="dataset",
+        method="LRP",
         do_gsea=True,
+        as_condition=None,
         sets=[
             "temp/genesets/h.all.v7.5.1.entrez.gmt",
             "temp/genesets/c6.all.v7.5.1.entrez.gmt",
@@ -482,44 +487,58 @@ class CELLIGNER2_EVAL:
         Args:
             on (str): The key of the group to use
             of (str): The key of the group to predict
-            using (str, optional): The method to use. Defaults to 'LRP'.
+            method (str, optional): The method to use. Defaults to 'LRP'.
             do_gsea (bool, optional): If True, perform GSEA on the predictions. Defaults to True.
         """
-        inp = torch.tensor(
-            self.model.adata[
-                (self.model.adata.obs.tissue_type == on)
-                & (self.model.adata.obs.cell_type == of)
-            ].X
-        )
-        if using == "LRP":
+        loc = self.model.adata.obs[on] == of
+        if dataset is not None:
+            loc = loc & (self.model.adata.obs[dataset_col] == dataset)
+        inp = self.model.adata[loc]
+        if method == "LRP":
             explainor = LRP(
                 Agg_class(self.model.model.encoder, self.model.model.classifier)
             )
 
-        elif using == "Saliency":
+        elif method == "Saliency":
             explainor = Saliency(
                 Agg_class(self.model.model.encoder, self.model.model.classifier)
             )
-        elif using == "LIME_LRP":
+        elif method == "LIME_LRP":
             explainor = LIME_LRP(
                 Agg_class(self.model.model.encoder, self.model.model.classifier)
             )
         else:
             raise ValueError("The given explainor is not valid.")
+
+        # making the
+        if as_condition is None:
+            as_condition = np.zeros(
+                (inp.shape[0], len(self.model.model.condition_encoder)), dtype=bool
+            )
+            for i, v in enumerate(
+                inp.obs.dataset.replace(
+                    self.model.model.condition_encoder
+                ).values.astype(int)
+            ):
+                as_condition[i][v] = 1
+        else:
+            cond = self.model.model.condition_encoder[as_condition]
+            as_condition = np.zeros(
+                (len(self.model.model.condition_encode), inp.shape[0]), dtype=bool
+            )
+            as_condition[:, cond] = 1
+
         attr = explainor.attribute(
-            inputs=inp,
-            additional_forward_args=torch.tensor([[0, 1]] * inp.shape[0]),
-            target=self.model.model.predictor_encoder[on],
+            inputs=torch.tensor(inp.X),
+            additional_forward_args=torch.tensor(as_condition),
+            target=self.model.model.predictor_encoder[of],
         )
         res = pd.DataFrame(
             data=attr.detach().numpy(),
-            columns=self.model.adata.var.index,
-            index=self.model.adata[
-                (self.model.adata.obs.tissue_type == on)
-                & (self.model.adata.obs.cell_type == of)
-            ].obs.index,
+            columns=inp.var.index,
+            index=inp.obs.index,
         ).mean()
-        if using == "LRP":
+        if method == "LRP":
             res = res.abs() * 60
         found, _ = rna.convertGenes(
             res.index.tolist(), from_idtype="ensembl_gene_id", to_idtype="entrezgene_id"
@@ -540,10 +559,10 @@ class CELLIGNER2_EVAL:
         data,
         do_filter=False,
         sets=[
-            "temp/genesets/h.all.v7.5.1.entrez.gmt",
-            "temp/genesets/c6.all.v7.5.1.entrez.gmt",
-            "temp/genesets/c2.cp.reactome.v7.5.1.entrez.gmt",
-            "temp/genesets/c8.all.v7.5.1.entrez.gmt",
+            "temp/genesets/h.all.v7.5.1.entrez.gmt",  # hallmark (50)
+            "temp/genesets/c6.all.v7.5.1.entrez.gmt",  # C6: oncogenic signature gene sets (189)
+            # "temp/genesets/c2.cp.reactome.v7.5.1.entrez.gmt",  # (6366)
+            "temp/genesets/c8.all.v7.5.1.entrez.gmt",  # cell type signature gene sets (700)
         ],
         using="prerank",
         **kwargs,
@@ -551,8 +570,14 @@ class CELLIGNER2_EVAL:
         """
         Perform GSEA on the predictions.
 
+        Args:
+            data (pd.DataFrame): The data to perform GSEA on.
+            do_filter (bool, optional): If True, filter the data to only include genes that are in the given sets. Defaults to False.
+            sets (list[str], optional): The sets to use. Defaults to [].
+            using (str, optional): The method to use. Defaults to 'prerank'.
 
-
+        Returns:
+            pd.DataFrame: The results of the GSEA.
         """
         if using == "prerank":
             gsea = gp.prerank
@@ -560,12 +585,11 @@ class CELLIGNER2_EVAL:
             gsea = gp.gsea
         else:
             raise ValueError("The given method is not valid.")
-        res = pd.concat(
-            [gsea(data, val, **kwargs).res2d for val in sets], axis=1
-        ).reset_index()
+        res = [gsea(data, val, **kwargs).res2d for val in sets]
+        res = pd.concat(res, axis=0).reset_index()
         if do_filter:
             res = res[res.fdr < 0.05]
-        return res.sort_values(by="es", ascending=False)
+        return res  # .sort_values(by="es", ascending=False)
 
     def define_clusters(self, lim=0.2, col="leiden"):
         """define_clusters will define clusters based on the leiden clustering.

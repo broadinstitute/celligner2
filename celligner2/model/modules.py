@@ -239,10 +239,13 @@ class Encoder(nn.Module):
         use_dr: bool,
         dr_rate: float,
         num_classes: int = 0,
+        n_expand: int = 0,
     ):
         super().__init__()
         self.n_classes = num_classes
         self.FC = None
+        self.n_expand = n_expand
+
         if len(layer_sizes) > 1:
             print("Encoder Architecture:")
             self.FC = nn.Sequential()
@@ -258,7 +261,9 @@ class Encoder(nn.Module):
                     )
                     self.FC.add_module(
                         name="L{:d}".format(i),
-                        module=CondLayers(in_size, out_size, self.n_classes, bias=True),
+                        module=MaskedCondLayers(
+                            in_size, out_size, self.n_classes, bias=True
+                        ),
                     )
                 else:
                     print("\tHidden Layer", i, "in/out:", in_size, out_size)
@@ -284,6 +289,11 @@ class Encoder(nn.Module):
         self.mean_encoder = nn.Linear(layer_sizes[-1], latent_dim)
         self.log_var_encoder = nn.Linear(layer_sizes[-1], latent_dim)
 
+        if self.n_expand > 0:
+            print("\tExpanded Mean/Var Layer in/out:", layer_sizes[-1], self.n_expand)
+            self.expand_mean_encoder = nn.Linear(layer_sizes[-1], self.n_expand)
+            self.expand_var_encoder = nn.Linear(layer_sizes[-1], self.n_expand)
+
     def forward(self, x, batch=None):
         if batch is not None:
             x = torch.cat((x, batch), dim=-1)
@@ -291,6 +301,9 @@ class Encoder(nn.Module):
             x = self.FC(x)
         means = self.mean_encoder(x)
         log_vars = self.log_var_encoder(x)
+        if self.n_expand > 0:
+            means = torch.cat((means, self.expand_mean_encoder(x)), dim=-1)
+            log_vars = torch.cat((log_vars, self.expand_var_encoder(x)), dim=-1)
         return means, log_vars
 
 
@@ -329,6 +342,7 @@ class Decoder(nn.Module):
         use_dr: bool,
         dr_rate: float,
         num_classes: int = 0,
+        n_expand: int = 0,
     ):
         super().__init__()
         self.use_dr = use_dr
@@ -344,23 +358,52 @@ class Decoder(nn.Module):
             layer_sizes[1],
             self.n_classes,
         )
+        self.n_expand = n_expand
+        if self.n_expand:
+            self.FirstL_add = nn.Sequential()
+            self.FirstL_add.add_module(
+                name="L_add{:d}".format(0),
+                module=CondLayers(
+                    self.n_expand,
+                    layer_sizes[1],
+                    self.n_classes,
+                    bias=True,
+                ),
+            )
         self.FirstL.add_module(
             name="L0",
             module=CondLayers(
                 layer_sizes[0], layer_sizes[1], self.n_classes, bias=False
             ),
         )
+
         if use_bn:
             self.FirstL.add_module(
                 "N0", module=nn.BatchNorm1d(layer_sizes[1], affine=True)
             )
+            if self.n_expand:
+                self.FirstL_add.add_module(
+                    "N_add{:d}".format(0),
+                    module=nn.BatchNorm1d(layer_sizes[1], affine=True),
+                )
         elif use_ln:
             self.FirstL.add_module(
                 "N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False)
             )
+            if self.n_expand:
+                self.FirstL_add.add_module(
+                    "N_add{:d}".format(0),
+                    module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False),
+                )
         self.FirstL.add_module(name="A0", module=nn.ReLU())
+        if self.n_expand:
+            self.FirstL_add.add_module(name="A_add{:d}".format(0), module=nn.ReLU())
         if self.use_dr:
             self.FirstL.add_module(name="D0", module=nn.Dropout(p=dr_rate))
+            if self.n_expand:
+                self.FirstL_add.add_module(
+                    name="D_add{:d}".format(0), module=nn.Dropout(p=dr_rate)
+                )
 
         # Create all Decoder hidden layers
         if len(layer_sizes) > 2:
@@ -416,11 +459,16 @@ class Decoder(nn.Module):
     def forward(self, z, batch=None):
         # Add Condition Labels to Decoder Input
         if batch is not None:
-            z_cat = torch.cat((z, batch), dim=-1)
-            dec_latent = self.FirstL(z_cat)
-        else:
-            dec_latent = self.FirstL(z)
+            z = torch.cat((z, batch), dim=-1)
+        if self.n_expand > 0:
+            z, z_add = torch.split(
+                z, [z.shape[1] - self.n_expand, self.n_expand], dim=1
+            )
+            dec_latent_add = self.FirstL_add(z_add)
+        dec_latent = self.FirstL(z)
 
+        if self.n_expand > 0:
+            dec_latent = dec_latent + dec_latent_add
         # Compute Hidden Output
         if self.HiddenL is not None:
             x = self.HiddenL(dec_latent)
@@ -454,6 +502,7 @@ class Classifier(nn.Module):
         use_ln: bool,
         use_dr: bool,
         num_classes: int = 0,
+        n_expand: int = 0,
     ):
         super().__init__()
         self.use_dr = use_dr
@@ -462,7 +511,21 @@ class Classifier(nn.Module):
         print("Classifier Architecture:")
         # Create first Classifier layer
         self.FirstL = nn.Sequential()
-        print("\tFirst Layer in/out: ", layer_sizes[0], layer_sizes[1])
+
+        self.n_expand = n_expand
+        if self.n_expand > 0:
+            self.FirstL_add = nn.Sequential()
+            self.FirstL_add.add_module(
+                name="L_add0",
+                module=nn.Linear(self.n_expand, layer_sizes[1], bias=False),
+            )
+
+        print(
+            "\tFirst Layer in/out/expand: ",
+            layer_sizes[0],
+            layer_sizes[1],
+            self.n_expand,
+        )
         self.FirstL.add_module(
             name="L0", module=nn.Linear(layer_sizes[0], layer_sizes[1], bias=False)
         )
@@ -471,13 +534,27 @@ class Classifier(nn.Module):
                 "N0",
                 module=nn.BatchNorm1d(layer_sizes[1], affine=True),
             )
+            if self.n_expand > 0:
+                self.FirstL_add.add_module(
+                    name="N_add0",
+                    module=nn.BatchNorm1d(layer_sizes[1], affine=True),
+                )
         elif use_ln:
             self.FirstL.add_module(
                 "N0", module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False)
             )
+            if self.n_expand > 0:
+                self.FirstL_add.add_module(
+                    name="N_add0",
+                    module=nn.LayerNorm(layer_sizes[1], elementwise_affine=False),
+                )
         self.FirstL.add_module(name="A0", module=nn.ReLU())
+        if self.n_expand > 0:
+            self.FirstL_add.add_module(name="A_add0", module=nn.ReLU())
         if self.use_dr:
             self.FirstL.add_module(name="D0", module=nn.Dropout(p=dr_rate))
+            if self.n_expand > 0:
+                self.FirstL_add.add_module(name="D_add0", module=nn.Dropout(p=dr_rate))
 
         # Create all Classifier hidden layers
         if len(layer_sizes) > 3:
@@ -516,7 +593,14 @@ class Classifier(nn.Module):
 
     def forward(self, z):
         # predicts class probabilities from latent space
+        if self.n_expand > 0:
+            z, z_add = torch.split(
+                z, [z.shape[1] - self.n_expand, self.n_expand], dim=1
+            )
+            zL_add = self.FirstL_add(z_add)
         zL = self.FirstL(z)
+        if self.n_expand > 0:
+            zL = zL + zL_add
         if self.HiddenL is not None:
             x = self.HiddenL(zL)
         else:
