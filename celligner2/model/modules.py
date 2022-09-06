@@ -1,9 +1,20 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from dgl.nn import GraphConv
 
 from typing import Optional, Union
 from ._utils import one_hot_encoder
+
+
+class mySequential(nn.Sequential):
+    def forward(self, *inputs):
+        for module in self._modules.values():
+            if type(inputs) == tuple:
+                inputs = module(*inputs)
+            else:
+                inputs = module(inputs)
+        return inputs
 
 
 class MaskedLinear(nn.Linear):
@@ -34,6 +45,7 @@ class MaskedCondLayers(nn.Module):
         bias: bool,
         n_ext: int = 0,
         n_ext_m: int = 0,
+        graph: bool = False,
         mask: Optional[torch.Tensor] = None,
         ext_mask: Optional[torch.Tensor] = None,
     ):
@@ -41,11 +53,14 @@ class MaskedCondLayers(nn.Module):
         self.n_cond = n_cond
         self.n_ext = n_ext
         self.n_ext_m = n_ext_m
+        self.graph = graph
 
-        if mask is None:
-            self.expr_L = nn.Linear(n_in, n_out, bias=bias)
-        else:
+        if mask is not None:
             self.expr_L = MaskedLinear(n_in, n_out, mask, bias=bias)
+        elif graph:
+            self.expr_L = GraphConv(n_in, n_out)
+        else:
+            self.expr_L = nn.Linear(n_in, n_out, bias=bias)
 
         if self.n_cond != 0:
             self.cond_L = nn.Linear(self.n_cond, n_out, bias=False)
@@ -59,7 +74,7 @@ class MaskedCondLayers(nn.Module):
             else:
                 self.ext_L_m = nn.Linear(self.n_ext_m, n_out, bias=False)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, g: Optional[torch.Tensor] = None):
         if self.n_cond == 0:
             expr, cond = x, None
         else:
@@ -79,7 +94,10 @@ class MaskedCondLayers(nn.Module):
                 expr, [expr.shape[1] - self.n_ext_m, self.n_ext_m], dim=1
             )
 
-        out = self.expr_L(expr)
+        if self.graph:
+            out = self.expr_L(expr, g)
+        else:
+            out = self.expr_L(expr)
         if ext is not None:
             out = out + self.ext_L(ext)
         if ext_m is not None:
@@ -240,21 +258,22 @@ class Encoder(nn.Module):
         dr_rate: float,
         num_classes: int = 0,
         n_expand: int = 0,
+        graph_layers: int = 0,
     ):
         super().__init__()
         self.n_classes = num_classes
-        self.FC = None
+        self.FC = mySequential()
         self.n_expand = n_expand
 
         if len(layer_sizes) > 1:
             print("Encoder Architecture:")
-            self.FC = nn.Sequential()
             for i, (in_size, out_size) in enumerate(
                 zip(layer_sizes[:-1], layer_sizes[1:])
             ):
                 if i == 0:
                     print(
-                        "\tInput Layer in, out and cond:",
+                        "\tInput " + "graph " if graph_layers > 0 else "",
+                        "Layer in, out and cond:",
                         in_size,
                         out_size,
                         self.n_classes,
@@ -262,18 +281,24 @@ class Encoder(nn.Module):
                     self.FC.add_module(
                         name="L{:d}".format(i),
                         module=MaskedCondLayers(
-                            in_size, out_size, self.n_classes, bias=True
+                            in_size,
+                            out_size,
+                            self.n_classes,
+                            bias=True,
+                            graph=(i < graph_layers),
                         ),
                     )
                 else:
                     print("\tHidden Layer", i, "in/out:", in_size, out_size)
-                    self.FC.add_module(
-                        name="L{:d}".format(i),
-                        module=nn.Linear(in_size, out_size, bias=True),
-                    )
+                    if i < graph_layers:
+                        node = GraphConv(in_size, out_size)
+                    else:
+                        node = nn.Linear(in_size, out_size, bias=True)
+                    self.FC.add_module(name="L{:d}".format(i), module=node)
                 if use_bn:
                     self.FC.add_module(
-                        "N{:d}".format(i), module=nn.BatchNorm1d(out_size, affine=True)
+                        "N{:d}".format(i),
+                        module=nn.BatchNorm1d(out_size, affine=True),
                     )
                 elif use_ln:
                     self.FC.add_module(
@@ -294,7 +319,7 @@ class Encoder(nn.Module):
             self.expand_mean_encoder = nn.Linear(layer_sizes[-1], self.n_expand)
             self.expand_var_encoder = nn.Linear(layer_sizes[-1], self.n_expand)
 
-    def forward(self, x, batch=None):
+    def forward(self, x, batch=None, g: Optional[torch.Tensor] = None):
         if batch is not None:
             x = torch.cat((x, batch), dim=-1)
         if self.FC is not None:
@@ -351,7 +376,7 @@ class Decoder(nn.Module):
         layer_sizes = [latent_dim] + layer_sizes
         print("Decoder Architecture:")
         # Create first Decoder layer
-        self.FirstL = nn.Sequential()
+        self.FirstL = mySequential()
         print(
             "\tFirst Layer in, out and cond: ",
             layer_sizes[0],
@@ -360,7 +385,7 @@ class Decoder(nn.Module):
         )
         self.n_expand = n_expand
         if self.n_expand:
-            self.FirstL_add = nn.Sequential()
+            self.FirstL_add = mySequential()
             self.FirstL_add.add_module(
                 name="L_add{:d}".format(0),
                 module=CondLayers(
@@ -407,7 +432,7 @@ class Decoder(nn.Module):
 
         # Create all Decoder hidden layers
         if len(layer_sizes) > 2:
-            self.HiddenL = nn.Sequential()
+            self.HiddenL = mySequential()
             for i, (in_size, out_size) in enumerate(
                 zip(layer_sizes[1:-1], layer_sizes[2:])
             ):

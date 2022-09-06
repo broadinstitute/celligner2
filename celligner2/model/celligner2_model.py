@@ -73,31 +73,38 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     def __init__(
         self,
         adata: AnnData,
-        condition_keys: Optional[list] = None,
-        conditions: Optional[list] = None,
         hidden_layer_sizes: list = [256, 64],
-        classifier_hidden_layer_sizes: list = [64, 32],
         latent_dim: int = 10,
         dr_rate: float = 0.05,
+        use_bn: bool = False,
+        use_ln: bool = True,
+        use_own_kl: bool = False,
+        miss: str = "U",
+        apply_log: bool = True,
+        # condition pat
+        condition_keys: Optional[list] = None,
+        conditions: Optional[list] = None,
         use_mmd: bool = True,
         mmd_on: str = "z",
         mmd_boundary: Optional[int] = None,
         recon_loss: Optional[str] = "nb",
         beta: float = 1,
+        batch_knowledge: bool = True,
+        main_dataset=None,
+        # classification part
+        classifier_hidden_layer_sizes: list = [64, 32],
         betaclass: float = 0.8,
-        use_bn: bool = False,
-        use_ln: bool = True,
         predictors: Optional[list] = None,
         predictor_keys: Optional[list] = [],
-        use_own_kl: bool = False,
-        miss: str = "U",
-        apply_log: bool = True,
+        # GNN part
+        res_mult: int = 0,
+        graph_layers: int = 0,
+        # expimap part
         mask: Optional[Union[np.ndarray, list]] = None,
         mask_key: str = "",
         n_unconstrained: int = 0,
         use_hsic: bool = False,
         hsic_one_vs_all: bool = False,
-        main_dataset=None,
         use_l_encoder: bool = False,
         # only on load
         n_expand: int = 0,
@@ -227,6 +234,10 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         self.use_l_encoder_ = use_l_encoder
         self.ext_n_unconstrained_ = ext_n_unconstrained
 
+        self.res_mult_ = res_mult
+        self.graph_layers_ = graph_layers
+        self.batch_knowledge_ = batch_knowledge
+
         self.input_dim_ = adata.n_vars
         self.apply_log_ = apply_log
         if main_dataset not in set(adata.obs[condition_keys].values.flatten()):
@@ -237,25 +248,31 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
 
         self.model = Celligner2(
             self.input_dim_,
-            self.conditions_,
-            self.predictors_,
             self.hidden_layer_sizes_,
-            self.classifier_hidden_layer_sizes_,
             self.latent_dim_,
             self.dr_rate_,
-            self.use_mmd_,
             self.use_own_kl_,
-            self.mmd_on_,
-            self.mmd_boundary_,
             self.recon_loss_,
-            self.beta_,
-            self.betaclass_,
             self.use_bn_,
             self.use_ln_,
             self.apply_log_,
+            # condition params
+            self.conditions_,
+            self.use_mmd_,
+            self.mmd_on_,
+            self.mmd_boundary_,
+            self.beta_,
             self.main_dataset_,
-            self.n_expand_,
+            self.batch_knowledge_,
+            # predictor params
+            self.predictors_,
+            self.classifier_hidden_layer_sizes_,
+            self.betaclass_,
+            # GNN params
+            self.graph_layers_,
+            self.res_mult_,
             # expimap mode params
+            self.n_expand_,
             self.expimap_mode_,
             self.mask_,
             self.ext_mask_,

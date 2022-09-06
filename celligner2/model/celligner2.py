@@ -50,23 +50,30 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
     def __init__(
         self,
         input_dim: int,
-        conditions: list,
-        predictors: list,
         hidden_layer_sizes: list = [256, 64],
-        classifier_hidden_layer_sizes: list = [32],
         latent_dim: int = 10,
         dr_rate: float = 0.05,
-        use_mmd: bool = False,
         use_own_kl: bool = False,
-        mmd_on: str = "z",
-        mmd_boundary: Optional[int] = None,
         recon_loss: Optional[str] = "nb",
-        beta: float = 1,
-        betaclass: float = 0.8,
         use_bn: bool = False,
         use_ln: bool = True,
         applylog: bool = True,
+        # conditional part
+        conditions: list = [],
+        use_mmd: bool = False,
+        mmd_on: str = "z",
+        mmd_boundary: Optional[int] = None,
+        beta: float = 1,
         main_dataset: str = None,
+        batch_knowledge: bool = True,
+        # classifier part
+        predictors: list = [],
+        classifier_hidden_layer_sizes: list = [32],
+        betaclass: float = 0.8,
+        # GNN part
+        graph_layers: int = 0,
+        res_mult: int = 0,
+        # expimap part
         n_expand: int = 0,
         expimap_mode: bool = None,
         mask: Optional[Union[np.ndarray, list]] = None,
@@ -121,6 +128,11 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         self.use_ln = use_ln
         self.mmd_on = mmd_on
         self.main_dataset = main_dataset
+
+        self.batch_knowledge = batch_knowledge
+
+        self.res_mult = res_mult
+        self.graph_layers = graph_layers
 
         self.dr_rate = dr_rate
         if self.dr_rate > 0:
@@ -177,7 +189,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                 self.use_ln,
                 self.use_dr,
                 self.dr_rate,
-                self.n_conditions,
+                self.n_conditions if self.batch_knowledge else 0,
                 self.n_expand,
             )
         self.encoder = Encoder(
@@ -187,7 +199,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
             self.use_ln,
             self.use_dr,
             self.dr_rate,
-            self.n_conditions,
+            self.n_conditions if self.batch_knowledge else 0,
             self.n_expand,
         )
         self.classifier = Classifier(
@@ -221,7 +233,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
                 self.use_ln,
                 self.use_dr,
                 self.dr_rate,
-                self.n_conditions,
+                self.n_conditions if self.batch_knowledge else 0,
                 self.n_expand,
             )
 
@@ -233,6 +245,7 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         classes: torch.Tensor = None,
         weight: torch.Tensor = None,
         goodloc: torch.Tensor = None,
+        main_dataset: str = None,
     ):
         if self.applylog:
             x_log = torch.log(1 + x)

@@ -31,6 +31,7 @@ np.set_printoptions(precision=2, edgeitems=7)
 
 def cleanup_annot(annot):
     for val in set(annot) - set(["celligner2_size_factors", "celligner2_labeled"]):
+
         annot = annot.replace(
             {
                 val: {
@@ -81,7 +82,7 @@ class CELLIGNER2_EVAL:
         self.adata_latent.obs = cleanup_annot(self.adata_latent.obs)
         self.model = model
         self.trainer = trainer
-        self.cell_type_names = None
+        self.dataset_names = None
         self.batch_names = None
         self.additional_adata = additional_adata
 
@@ -92,6 +93,8 @@ class CELLIGNER2_EVAL:
         n_neighbors=8,
         dir_path=None,
         umap_kwargs={},
+        do_pca=False,
+        only_dir=[],
         rerun=True,
         use_genepy=False,
         **kwargs,
@@ -105,7 +108,12 @@ class CELLIGNER2_EVAL:
             sc.pp.neighbors(self.adata_latent, n_neighbors=n_neighbors)
             sc.tl.leiden(self.adata_latent)
             sc.tl.umap(self.adata_latent, **umap_kwargs)
-
+        if do_pca:
+            sc.tl.pca(self.adata_latent, n_comps=3)
+        elif only_dir:
+            print("putting directions in the UMAP location of the annData object")
+            self.adata_latent.obsm["X_umap"] = self.adata_latent.X[:, only_dir]
+            self.adata_latent.uns["umap"] = {"params": {"a": 0, "b": 0}}
         if use_genepy:
             from bokeh.palettes import Category20_20, Set3_12, Accent8
             from genepy.utils import plot
@@ -115,39 +123,57 @@ class CELLIGNER2_EVAL:
                 raise ValueError("Too many things to plot")
 
             labels = {i: self.adata_latent.obs[i].tolist() for i in kwargs["color"]}
-            colors = self.adata_latent.obs[kwargs["color"][0]].replace(
+
+            ind = 0 if len(kwargs["color"]) == 1 else 1
+            colors = self.adata_latent.obs[kwargs["color"][ind]].replace(
                 {
                     i: color[n]
                     for n, i in enumerate(
-                        list(set(self.adata_latent.obs[kwargs["color"][0]]))
+                        list(set(self.adata_latent.obs[kwargs["color"][ind]]))
                     )
                 }
             )
-            plot.scatter(
-                self.adata_latent.obsm["X_umap"],
+            shape = None
+            if len(kwargs["color"]) > 1:
+                shape = self.adata_latent.obs[kwargs["color"][0]].replace(
+                    {
+                        j: i
+                        for i, j in enumerate(
+                            list(set(self.adata_latent.obs[kwargs["color"][0]]))
+                        )
+                    }
+                )
+
+            return plot.scatter(
+                self.adata_latent.obsm["X_umap"]
+                if not do_pca
+                else self.adata_latent.obsm["X_pca"],
                 labels=labels,
+                shape=shape,
                 colors=colors,
                 colprovided=True,
+                no_xy=True,
                 **kwargs,
             )
         else:
-            sc.pl.umap(
-                self.adata_latent,
-                show=show,
-                **kwargs,
-            )
+            if do_pca:
+                sc.pl.pca_overview(self.adata_latent, show=show, **kwargs)
+            else:
+                sc.pl.umap(
+                    self.adata_latent,
+                    show=show,
+                    **kwargs,
+                )
             if save:
                 # create folder if not exists
                 if not os.path.exists(dir_path):
                     os.makedirs(dir_path)
                 plt.savefig(f"{dir_path}_batch.png", bbox_inches="tight")
 
-    def update_true_class(self, data, label_key="tissue_type"):
+    def update_true_class(self, data, label_key="lineage"):
         self.adata_latent.obs[label_key] = data
 
-    def plot_classification(
-        self, classes=["tissue_type", "disease_type", "sex", "age"]
-    ):
+    def plot_classification(self, classes=["lineage", "disease_type", "sex", "age"]):
         for val in classes:
             sankey_diagram(
                 np.vstack(
@@ -163,8 +189,8 @@ class CELLIGNER2_EVAL:
     def get_class_quality(
         self,
         only=None,
-        on="cell_type",
-        classes=["tissue_type", "disease_type", "sex", "age"],
+        on="dataset",
+        classes=["lineage", "disease_type", "sex", "age"],
     ):
         if only is not None:
             only = [only] if type(only) is str else only
@@ -199,9 +225,9 @@ class CELLIGNER2_EVAL:
 
     def get_confusion_matrix(
         self,
-        of="tissue_type",
+        of="lineage",
         only=None,
-        on="cell_type",
+        on="dataset",
         doplot=True,
         save=False,
         dir_path="temp/",
@@ -211,9 +237,9 @@ class CELLIGNER2_EVAL:
         """getconfusionMatrix returns a confusion matrix for the given label_key.
 
         Args:
-            on (str, optional): The label_key to use for the confusion matrix. Defaults to "tissue_type".
+            on (str, optional): The label_key to use for the confusion matrix. Defaults to "lineage".
             only ([type], optional): Only show the given classes. Defaults to None.
-            on (str, optional): The label_key to use for the batch. Defaults to "cell_type".
+            on (str, optional): The label_key to use for the batch. Defaults to "dataset".
             doplot (bool, optional): If True, plot the confusion matrix. Defaults to True.
             save (bool, optional): If True, save the confusion matrix. Defaults to False.
             dir_path (str, optional): The path to save the confusion matrix. Defaults to "temp/".
@@ -259,9 +285,9 @@ class CELLIGNER2_EVAL:
         """getClassCorrelation returns a correlation matrix for the given label_key.
 
         Args:
-            on (str, optional): The label_key to use for the correlation matrix. Defaults to "tissue_type".
+            on (str, optional): The label_key to use for the correlation matrix. Defaults to "lineage".
             only ([type], optional): Only show the given classes. Defaults to None.
-            on (str, optional): The label_key to use for the batch. Defaults to "cell_type".
+            on (str, optional): The label_key to use for the batch. Defaults to "dataset".
 
         Returns:
             pd.DataFrame: The correlation matrix.
@@ -333,7 +359,7 @@ class CELLIGNER2_EVAL:
     def get_ebm(
         self,
         n_neighbors=50,
-        label_key="cell_type",
+        label_key="dataset",
         n_pools=50,
         n_samples_per_pool=100,
         verbose=True,
@@ -349,7 +375,7 @@ class CELLIGNER2_EVAL:
             print("Entropy of Batchmixing-Score: %0.2f" % ebm_score)
         return ebm_score
 
-    def get_knn_purity(self, label_key="tissue_type", n_neighbors=10, verbose=True):
+    def get_knn_purity(self, label_key="lineage", n_neighbors=10, verbose=True):
         knn_score = knn_purity(
             adata=self.adata_latent, label_key=label_key, n_neighbors=n_neighbors
         )
@@ -357,20 +383,20 @@ class CELLIGNER2_EVAL:
             print("KNN Purity-Score:  %0.2f" % knn_score)
         return knn_score
 
-    def get_asw(self, label_key="tissue_type", on="cell_type"):
-        asw_score_batch, asw_score_cell_types = asw(
+    def get_asw(self, label_key="lineage", on="dataset"):
+        asw_score_batch, asw_score_datasets = asw(
             adata=self.adata_latent, label_key=label_key, batch_key=on
         )
         print("ASW on batch:", asw_score_batch)
-        print("ASW on celltypes:", asw_score_cell_types)
-        return asw_score_batch, asw_score_cell_types
+        print("ASW on celltypes:", asw_score_datasets)
+        return asw_score_batch, asw_score_datasets
 
-    def get_nmi(self, label_key="tissue_type"):
+    def get_nmi(self, label_key="lineage"):
         nmi_score = nmi(adata=self.adata_latent, label_key=label_key)
         print("NMI score:", nmi_score)
         return nmi_score
 
-    def get_latent_score(self, label_key="tissue_type"):
+    def get_latent_score(self, label_key="lineage"):
         ebm = self.get_ebm(verbose=False, label_key=label_key)
         knn = self.get_knn_purity(verbose=False, label_key=label_key)
         score = ebm + knn
@@ -462,6 +488,7 @@ class CELLIGNER2_EVAL:
 
         _, ax = plt.subplots(figsize=(13, 13))
         sns.heatmap(coeff, ax=ax)
+        plt.show()
         return coeff
 
     def explain_predictions(
@@ -473,6 +500,7 @@ class CELLIGNER2_EVAL:
         method="LRP",
         do_gsea=True,
         as_condition=None,
+        using="prerank",
         sets=[
             "temp/genesets/h.all.v7.5.1.entrez.gmt",
             "temp/genesets/c6.all.v7.5.1.entrez.gmt",
@@ -491,9 +519,11 @@ class CELLIGNER2_EVAL:
             do_gsea (bool, optional): If True, perform GSEA on the predictions. Defaults to True.
         """
         loc = self.model.adata.obs[on] == of
+        totloc = np.ones(self.model.adata.obs.shape[0], dtype=bool)
         if dataset is not None:
             loc = loc & (self.model.adata.obs[dataset_col] == dataset)
-        inp = self.model.adata[loc]
+            if using == "gsea":
+                totloc = self.model.adata.obs[dataset_col] == dataset
         if method == "LRP":
             explainor = LRP(
                 Agg_class(self.model.model.encoder, self.model.model.classifier)
@@ -510,7 +540,29 @@ class CELLIGNER2_EVAL:
         else:
             raise ValueError("The given explainor is not valid.")
 
-        # making the
+        res = self.making_explanations(
+            self.model.adata[loc], explainor, of, as_condition
+        )
+        if using == "gsea":
+            totres = self.making_explanations(
+                self.model.adata[totloc], explainor, of, as_condition
+            )
+
+        if method == "LRP":
+            res = res.abs() * 60
+            if using == "gsea":
+                totres = totres.abs() * 60
+        if do_gsea:
+            res = gsea_prepro(res)
+            if using == "gsea":
+                res = pd.concat([res, gsea_prepro(totres)[0]], axis=1)
+                res.columns = ["index", "0", "1"]
+                kwargs["cls"] = [0, 1]
+            return run_gsea(res, using=using, sets=sets, **kwargs), res
+        else:
+            return None, res
+
+    def making_explanations(self, inp, explainor, of, as_condition=None):
         if as_condition is None:
             as_condition = np.zeros(
                 (inp.shape[0], len(self.model.model.condition_encoder)), dtype=bool
@@ -533,63 +585,11 @@ class CELLIGNER2_EVAL:
             additional_forward_args=torch.tensor(as_condition),
             target=self.model.model.predictor_encoder[of],
         )
-        res = pd.DataFrame(
+        return pd.DataFrame(
             data=attr.detach().numpy(),
             columns=inp.var.index,
             index=inp.obs.index,
         ).mean()
-        if method == "LRP":
-            res = res.abs() * 60
-        found, _ = rna.convertGenes(
-            res.index.tolist(), from_idtype="ensembl_gene_id", to_idtype="entrezgene_id"
-        )
-        res.index = found
-        res = res[~res.index.isna()]
-        res.index = res.index.astype(str)
-        res = res[~res.index.str.startswith("ENS")]
-        res.index = res.index.astype(float).astype(int).astype(str)
-        res = res.reset_index().sort_values(by=0, ascending=False)
-        if do_gsea:
-            return self.do_gsea(res, sets=sets, **kwargs), res
-        else:
-            return None, res
-
-    def do_gsea(
-        self,
-        data,
-        do_filter=False,
-        sets=[
-            "temp/genesets/h.all.v7.5.1.entrez.gmt",  # hallmark (50)
-            "temp/genesets/c6.all.v7.5.1.entrez.gmt",  # C6: oncogenic signature gene sets (189)
-            # "temp/genesets/c2.cp.reactome.v7.5.1.entrez.gmt",  # (6366)
-            "temp/genesets/c8.all.v7.5.1.entrez.gmt",  # cell type signature gene sets (700)
-        ],
-        using="prerank",
-        **kwargs,
-    ):
-        """
-        Perform GSEA on the predictions.
-
-        Args:
-            data (pd.DataFrame): The data to perform GSEA on.
-            do_filter (bool, optional): If True, filter the data to only include genes that are in the given sets. Defaults to False.
-            sets (list[str], optional): The sets to use. Defaults to [].
-            using (str, optional): The method to use. Defaults to 'prerank'.
-
-        Returns:
-            pd.DataFrame: The results of the GSEA.
-        """
-        if using == "prerank":
-            gsea = gp.prerank
-        elif using == "gsea":
-            gsea = gp.gsea
-        else:
-            raise ValueError("The given method is not valid.")
-        res = [gsea(data, val, **kwargs).res2d for val in sets]
-        res = pd.concat(res, axis=0).reset_index()
-        if do_filter:
-            res = res[res.fdr < 0.05]
-        return res  # .sort_values(by="es", ascending=False)
 
     def define_clusters(self, lim=0.2, col="leiden"):
         """define_clusters will define clusters based on the leiden clustering.
@@ -617,3 +617,57 @@ class CELLIGNER2_EVAL:
                     name = name[:-1] + str(c)
             cat.update({i: name})
         return cat, counts
+
+
+def gsea_prepro(res):
+    res = res.copy()
+    found, _ = rna.convertGenes(
+        res.index.tolist(), from_idtype="ensembl_gene_id", to_idtype="entrezgene_id"
+    )
+    res.index = found
+    res = res[~res.index.isna()]
+    res.index = res.index.astype(str)
+    res = res[~res.index.str.startswith("ENS")]
+    res.index = res.index.astype(float).astype(int).astype(str)
+    res = res.reset_index().sort_values(by=0, ascending=False)
+    return res
+
+
+def run_gsea(
+    data,
+    do_filter=False,
+    sets=[
+        "temp/genesets/h.all.v7.5.1.entrez.gmt",  # hallmark (50)
+        "temp/genesets/c6.all.v7.5.1.entrez.gmt",  # C6: oncogenic signature gene sets (189)
+        # "temp/genesets/c2.cp.reactome.v7.5.1.entrez.gmt",  # (6366)
+        "temp/genesets/c8.all.v7.5.1.entrez.gmt",  # cell type signature gene sets (700)
+    ],
+    using="prerank",
+    **kwargs,
+):
+    """
+    Perform GSEA on the predictions.
+
+    Args:
+        data (pd.DataFrame): The data to perform GSEA on.
+        do_filter (bool, optional): If True, filter the data to only include genes that are in the given sets. Defaults to False.
+        sets (list[str], optional): The sets to use. Defaults to [].
+        using (str, optional): The method to use. Defaults to 'prerank'.
+
+    Returns:
+        pd.DataFrame: The results of the GSEA.
+    """
+    if using == "prerank":
+        gsea = gp.prerank
+    elif using == "gsea":
+        gsea = gp.gsea
+    else:
+        raise ValueError("The given method is not valid.")
+    res = [gsea(data, val, **kwargs).res2d for val in sets]
+    res = pd.concat(res, axis=0).reset_index()
+    if do_filter:
+        res = res[res.fdr < 0.05]
+    return res  # .sort_values(by="es", ascending=False)
+    if do_filter:
+        res = res[res.fdr < 0.05]
+    return res  # .sort_values(by="es", ascending=False)

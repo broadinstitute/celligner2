@@ -79,6 +79,7 @@ class Trainer:
         min_weight: float = 0.2,
         use_leiden: bool = True,
         leiden_neighbors: int = 8,
+        leiden_resolution: float = 1,
         dataset_key="dataset",
         **kwargs,
     ):
@@ -100,11 +101,16 @@ class Trainer:
                 leiden_neighbors = int(np.log10(len(dat)) * 2)
                 dat.X = np.nan_to_num(dat.X, 0)
                 sc.pp.neighbors(dat, n_neighbors=leiden_neighbors)
-                sc.tl.leiden(dat)
+                sc.tl.leiden(dat, resolution=leiden_resolution)
 
                 self.adata.obs.loc[dat.obs.index, "leiden_mix"] = [
                     val + "_" + str(i) for i in dat.obs["leiden"]
                 ]
+                print(
+                    "found {} clusters for dataset {}".format(
+                        len(set(dat.obs["leiden"])), val
+                    )
+                )
 
         self.batch_size = batch_size
         self.alpha_epoch_anneal = alpha_epoch_anneal

@@ -1,0 +1,14 @@
+,Mapping Rate,Base Mismatch,End 1 Mapping Rate,End 2 Mapping Rate,End 1 Mismatch Rate,End 2 Mismatch Rate,Expression Profiling Efficiency,High Quality Rate,Exonic Rate,Ambiguous Alignment Efficiency,Avg. Splits per Read,Alternative Alignments,Chimeric Alignment Rate,Total Reads,Read Length,Min Genes Detected,Max Genes Detected
+AA02-Tumor-SM-5LB98,False,False,False,False,False,False,False,False,False,False,False,False,False,True,False,False,False
+AA13-Tumor-SM-GXH5W,True,True,True,True,True,True,True,True,False,True,False,False,False,False,False,False,False
+AB018-Tumor-SM-GXH34,False,False,False,False,False,False,False,False,False,False,True,False,False,False,False,False,False
+CCLF_Mix_RNASeq_June2016-AA13-Tumor-SM-6DBPD,True,True,True,True,True,True,True,True,False,True,False,False,False,False,False,False,False
+CCLF_Mix_RNASeq_June2016-AB016-Tumor-SM-9QQCX,True,True,True,True,True,True,True,True,False,False,False,False,False,False,False,False,False
+CCLF_PEDS1034-Tumor-SM-HUQMU,False,False,False,False,False,False,False,True,False,False,False,True,False,False,False,False,False
+CCLF_PEDS1041-Tumor-SM-HUQN4,False,False,False,False,False,False,False,False,False,False,False,True,False,False,False,False,False
+CCLF_RCRF1009-Tumor-SM-HPY1O,False,False,False,False,False,False,False,True,True,False,False,True,False,False,False,False,False
+DW020-Tumor-SM-E8WFU,False,False,False,False,False,False,False,False,False,False,False,True,False,False,False,False,False
+PEDS018-Tumor-SM-6M6IM,False,False,False,False,False,False,False,False,False,False,False,True,False,False,False,False,False
+PEDS030-Tumor-SM-GBCD3,True,True,True,True,True,True,True,True,True,False,False,False,False,False,False,False,False
+PEDS172-Tumor-SM-GXK36,False,False,False,False,False,False,False,False,False,False,True,True,False,False,False,False,False
+RNAseq_05262017-RH28-Tumor-SM-E9AWQ,False,False,False,False,False,False,True,False,True,False,False,False,False,False,False,False,False

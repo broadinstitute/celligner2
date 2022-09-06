@@ -121,6 +121,9 @@ venv.bak/
 # mkdocs documentation
 /site
 
+GSEA_Prerank/
+GSEA_/
+
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -136,6 +139,6 @@ notes.md
 .RData
 temp
 reference_model
-data/hcmi/
-gdc-client*
+# data
+data/hcmi
 workspace.code-workspace
