@@ -56,6 +56,14 @@ class CELLIGNER2_EVAL:
         additional_adata: AnnData = None,
         only_additional: bool = False,
     ):
+        """__init__
+
+        Args:
+            model (Union[Celligner2, CELLIGNER2]): The trained model to give, prefer Celligner2.
+            trainer (Celligner2Trainer, optional): if type(model) is CELLIGNER2 need to also provide trainer. Defaults to None.
+            additional_adata (AnnData, optional): if want to add more data in addition to what the model currently contains. Defaults to None.
+            only_additional (bool, optional): if want to discard the data that the model currently cotains. Defaults to False.
+        """
         # if type(model) is CELLIGNER2:
         trainer = model.trainer
         # if no predictors:
@@ -99,6 +107,25 @@ class CELLIGNER2_EVAL:
         use_genepy=False,
         **kwargs,
     ):
+        """plot_latent plot a umap of the latent space
+
+        Args:
+            show (bool, optional): show the plot. Defaults to True.
+            save (bool, optional): save the plot. Defaults to False.
+            n_neighbors (int, optional): number of neighboors for the leiden algo. Defaults to 8.
+            dir_path (_type_, optional): location to save the plot. Defaults to None.
+            umap_kwargs (dict, optional): additional scanpy umap arguments. Defaults to {}.
+            do_pca (bool, optional): do pca instead of umap (shows additional info and 3D plots), do not use genepy. Defaults to False.
+            only_dir (list, optional): instead of umap and PCA, select just a set of latent dimensions. Defaults to [].
+            rerun (bool, optional): if set to false, won't redo dimensionality reduction. Defaults to True.
+            use_genepy (bool, optional): if set to true, will use the interactive bokeh plot from genepy. Defaults to False.
+
+        Raises:
+            ValueError: Too many things to plot
+
+        Returns:
+            (bokeh.glyph, optional): the bokeh instance if use_genepy
+        """
         if save:
             show = False
             if dir_path is None:
@@ -513,10 +540,17 @@ class CELLIGNER2_EVAL:
         Explain the predictions of a model.
 
         Args:
-            on (str): The key of the group to use
-            of (str): The key of the group to predict
+            of (str): The key of the group we predict on.
+            dataset (adata, optional): another dataset to use instead of the one contained in the evaluator
+            on (str, optional): The key of the group to use. default to lineage
+            dataset_col (str, optional): . defaults to 'dataset'.
             method (str, optional): The method to use. Defaults to 'LRP'.
             do_gsea (bool, optional): If True, perform GSEA on the predictions. Defaults to True.
+            as_condition (np.array, optional): an array representing the condition matrix to use. defaults to using the available cond array
+            using (str, optional): the gsea algorithm to use.
+            sets (list, optional): the gene sets to use (get them at the gsea website)
+            kwargs for the gsea function.
+
         """
         loc = self.model.adata.obs[on] == of
         totloc = np.ones(self.model.adata.obs.shape[0], dtype=bool)
