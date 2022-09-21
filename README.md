@@ -63,9 +63,10 @@ pip install celligner2
 
 ## Usage
 
-For information on usage please see the
-[demo_notebook.ipynb](https://github.com/broadinstitute/celligner2/blob/main/demo_notebook.ipynb)
-file.
+For information on usage please see the different notebooks in __runs/__. Unfortunately a general demo notebook is not yet present. The latest version of the run is in -v4.ipynb.
+
+For information about data generation please see the __data/__ folder.
+
 
 ```py
 from celligner2 import BaseClass

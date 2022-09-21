@@ -45,6 +45,25 @@ class Celligner2(nn.Module, CVAELatentsModelMixin):
         If `True` layer normalization will be applied to layers.
     use_own_kl: Boolean
         If `True` the KL-Divergence will be calculated by the network itself. Otherwise torch
+    batch_knowledge: bool
+        whether or not to give the model batch information (at the encoder/decoder level (TRVAE))
+    main_dataset: str
+        if one is provided, will do MMD only on the distance of other datasets to that one.
+    classifier_hidden_layer_sizes: list
+        a list with the number of hidden layers for the classifier.
+    betaclass: int
+        the weight of the classification loss.
+    predictors: list
+        a list of the different values in the obs dataframe that we need to predict on (can be across multiple columns). defaults to everything available.
+    res_mult: int
+        UNUSED. number of resnet blocks to use
+    graph_layers: list
+        UNUSED. a definition of the graph layers' sizes
+    use_l_encoder: bool
+        WIP. the l_encoder encodes into the genesets.. (see expimap code)
+    n_expand
+    ext_mask
+    ext_n_unconstrained
     """
 
     def __init__(

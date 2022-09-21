@@ -18,7 +18,7 @@ Next I use the classifier's results to get at feature correlation (when using hu
 
 ![img/CL2T2-1.png](img/CL2T2-1.png)
 
-Trying it again with a larger model, I achieved better reconstruction and better mixing.
+Trying it again with a larger model, I achieved a better reconstruction and bit better mixing.
 
 ![img/CL2T2-2.png](img/CL2T2-2.png)
 
@@ -161,7 +161,7 @@ Additionally I quickly checked reconstruction and counterfactual reconstruction 
 
 ![img/CL2T4-4.png](img/CL2T4-4.png)
 
-I Finally looked at the latent space of this trio of dataset when no classification was applied. Interestingly, playing with model size I could see that the latent space was not the same when the model was large, especially regarding the EMT signal. Another latent space change could be seen from increasing the latent space dimension.
+I Finally looked at the latent space of this trio of dataset when no classification was applied. Interestingly, playing with model size I could see that the latent space was not the same when the model was large, especially regarding the EMT signal. Another latent space change could be seen from increasing the latent space dimension. (first plot is with larger net and second is with smaller net).
 
 ![img/CL2T4-5.png](img/CL2T4-5.png)
 

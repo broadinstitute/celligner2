@@ -68,7 +68,32 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
     hsic_one_vs_all: Boolean
         If True, calculates the sum of HSIC losses for each unconstarined term vs the other terms.
         If False, calculates HSIC for all unconstarined terms vs the other terms.
-        Used for query mapping."""
+        Used for query mapping.
+    use_own_kl: Boolean
+        If `True` the KL-Divergence will be calculated by the network itself. Otherwise torch
+    miss: str
+        the str value representing the missing data in the obs.
+    apply_log: bool
+        whether or not to log transform the expression data
+    batch_knowledge: bool
+        whether or not to give the model batch information (at the encoder/decoder level (TRVAE))
+    main_dataset: str
+        if one is provided, will do MMD only on the distance of other datasets to that one.
+    classifier_hidden_layer_sizes: list
+        a list with the number of hidden layers for the classifier.
+    betaclass: int
+        the weight of the classification loss.
+    predictors: list
+        a list of the different values in the obs dataframe that we need to predict on (can be across multiple columns). defaults to everything available.
+    predictor_keys: list
+        a list of only a subset of columns of the obs on which to get all available values as things to classify on.
+    res_mult: int
+        UNUSED. number of resnet blocks to use
+    graph_layers: list
+        UNUSED. a definition of the graph layers' sizes
+    use_l_encoder: bool
+        WIP. the l_encoder encodes into the genesets.. (see expimap code)
+    """
 
     def __init__(
         self,
@@ -106,7 +131,7 @@ class CELLIGNER2(BaseMixin, SurgeryMixin, CVAELatentsMixin):
         use_hsic: bool = False,
         hsic_one_vs_all: bool = False,
         use_l_encoder: bool = False,
-        # only on load
+        # only on load not to use directly
         n_expand: int = 0,
         ext_mask: Optional[Union[np.ndarray, list]] = None,
         ext_n_unconstrained: int = 0,
